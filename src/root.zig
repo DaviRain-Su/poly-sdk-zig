@@ -65,6 +65,9 @@ pub const signer = @import("signer/mod.zig");
 /// Authentication module (L1/L2 auth)
 pub const auth = @import("auth/mod.zig");
 
+/// Order module (OrderBuilder, types)
+pub const order = @import("order/mod.zig");
+
 // Re-export CLOB client at root level for convenience
 pub const ClobClient = clob.ClobClient;
 
@@ -99,6 +102,18 @@ pub const L2Auth = auth.L2Auth;
 pub const L1PolyHeader = auth.L1PolyHeader;
 pub const L2PolyHeader = auth.L2PolyHeader;
 pub const ApiCreds = auth.ApiCreds;
+
+// Re-export order types
+pub const OrderBuilder = order.OrderBuilder;
+pub const OrderBuilderOptions = order.OrderBuilderOptions;
+pub const SignedOrder = order.SignedOrder;
+pub const Side = order.Side;
+pub const SignatureType = order.SignatureType;
+pub const TickSize = order.TickSize;
+pub const TimeInForce = order.TimeInForce;
+pub const OrderArgs = order.OrderArgs;
+pub const MarketOrderArgs = order.MarketOrderArgs;
+pub const CreateOrderOptions = order.CreateOrderOptions;
 
 // ============================================================================
 // Tests
@@ -145,6 +160,36 @@ test "root module L2Auth" {
     try std.testing.expectEqualStrings("key", l2.getApiKey());
 }
 
+test "root module order types" {
+    // 创建钱包
+    const wallet = try Wallet.fromPrivateKeyHex(
+        "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318",
+    );
+
+    // 创建订单构建器
+    const builder = OrderBuilder.init(&wallet, .{ .chain_id = 137 });
+    try std.testing.expectEqual(@as(u64, 137), builder.getChainId());
+
+    // 测试类型导出
+    try std.testing.expectEqual(@as(u8, 0), @intFromEnum(Side.BUY));
+    try std.testing.expectEqual(@as(u8, 1), @intFromEnum(Side.SELL));
+
+    // 测试 TickSize
+    const tick = TickSize.@"0.01".toDecimal();
+    try std.testing.expectEqual(@as(u8, 2), tick.scale);
+
+    // 创建订单
+    const signed_order = try builder.createOrderWithSalt(.{
+        .token_id = "12345",
+        .price = try Decimal.fromString("0.5"),
+        .size = try Decimal.fromString("100"),
+        .side = .BUY,
+    }, .{}, 12345);
+
+    try std.testing.expectEqual(@as(u256, 12345), signed_order.salt);
+    try std.testing.expectEqual(Side.BUY, signed_order.side);
+}
+
 test "all submodules" {
     _ = @import("clob/mod.zig");
     _ = @import("types/mod.zig");
@@ -153,4 +198,5 @@ test "all submodules" {
     _ = @import("crypto/mod.zig");
     _ = @import("signer/mod.zig");
     _ = @import("auth/mod.zig");
+    _ = @import("order/mod.zig");
 }

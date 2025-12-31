@@ -134,7 +134,7 @@ try client.postOrder(order, .gtc);
 | [v0.2-signer](./stories/v0.2-signer.md) | ✅ 已完成 | Wallet, EIP-712 签名 | v0.2-crypto |
 | [v0.2-l1-auth](./stories/v0.2-l1-auth.md) | ✅ 已完成 | L1 认证, API Key 创建/派生 | v0.2-signer |
 | [v0.2-l2-auth](./stories/v0.2-l2-auth.md) | ✅ 已完成 | L2 认证, HMAC 请求签名 | v0.2-l1-auth |
-| [v0.2-order-builder](./stories/v0.2-order-builder.md) | ⏳ 待开始 | 订单构建器, 限价单/市价单 | v0.2-signer |
+| [v0.2-order-builder](./stories/v0.2-order-builder.md) | ✅ 已完成 | 订单构建器, 限价单/市价单 | v0.2-signer |
 | [v0.2-orders](./stories/v0.2-orders.md) | ⏳ 待开始 | 订单 CRUD, 交易历史, 余额查询 | v0.2-order-builder, v0.2-l2-auth |
 
 ### L1 认证端点
@@ -371,3 +371,4 @@ try ws.subscribeTrades(token_id, onTrade);
 | 2024-12-31 | v0.2-signer 完成：Wallet 类型、EIP-712 订单签名、Polymarket 合约地址 |
 | 2024-12-31 | v0.2-l1-auth 完成：L1Auth、L1PolyHeader、ApiCreds、ClobAuth EIP-712 |
 | 2024-12-31 | v0.2-l2-auth 完成：L2Auth、HMAC-SHA256 签名、Base64 编码 |
+| 2024-12-31 | v0.2-order-builder 完成：OrderBuilder、限价单创建、金额计算、EIP-712 签名 |

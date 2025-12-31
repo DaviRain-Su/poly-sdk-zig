@@ -6,6 +6,97 @@
 
 ## 会话记录
 
+### Session 2024-12-31-011
+
+**日期**: 2024-12-31  
+**时长**: ~30 分钟  
+**目标**: 完成 v0.2-order-builder Story
+
+#### 完成的工作
+
+##### 1. 订单类型定义 (`src/order/types.zig`)
+
+- `Side` - 交易方向 (BUY/SELL)
+- `SignatureType` - 签名类型 (EOA/POLY_PROXY/POLY_GNOSIS_SAFE)
+- `TickSize` - 价格精度 (0.1/0.01/0.001/0.0001)
+- `TimeInForce` - 订单有效期 (GTC/GTD/FOK/FAK)
+- `OrderArgs` - 限价单参数
+- `MarketOrderArgs` - 市价单参数
+- `CreateOrderOptions` - 创建订单选项
+- `SignedOrder` - 签名后的订单
+- 8 个测试
+
+##### 2. 金额计算器 (`src/order/calculator.zig`)
+
+- `calculateMakerAmount()` / `calculateTakerAmount()` - 计算订单金额
+- `decimalToU256()` / `u256ToDecimal()` - Decimal 与 u256 转换
+- `roundToTickSize()` - 价格舍入到 tick size
+- `parseTokenId()` - 解析 token ID
+- `validatePrice()` / `validateSize()` - 验证价格和数量
+- `generateSalt()` - 生成随机 salt
+- 13 个测试
+
+##### 3. 订单构建器 (`src/order/builder.zig`)
+
+- `OrderBuilder` 结构体
+- `init()` - 初始化构建器
+- `createOrder()` - 创建并签名限价单
+- `createOrderWithSalt()` - 使用指定 salt 创建订单（测试用）
+- EIP-712 签名集成
+- 11 个测试
+
+##### 4. 模块导出 (`src/order/mod.zig`)
+
+- 统一导出所有 order 子模块
+- 便捷类型别名
+- 4 个集成测试
+
+##### 5. 更新 root.zig
+
+- 添加 order 模块导出
+- 添加便捷类型导出 (OrderBuilder, SignedOrder, Side 等)
+- 添加 order 模块测试
+- 修复 calculator.zig 中 Decimal.compare() 返回值类型问题
+
+##### 6. 创建文档
+
+- `docs/order/README.md` - 模块概述
+- `docs/order/builder.md` - 订单构建器完整文档
+- 更新 `docs/README.md` 添加 order 模块链接
+
+#### 测试结果
+
+```bash
+$ zig build test
+All tests passed.
+```
+
+| 模块 | 测试数 |
+|------|--------|
+| order/types.zig | 8 |
+| order/calculator.zig | 13 |
+| order/builder.zig | 11 |
+| order/mod.zig | 4 |
+| root.zig (新增) | 1 |
+| **order 总计** | **37** |
+
+#### v0.2-order-builder 完成！✅
+
+所有任务已完成：
+- [x] 订单类型定义 (Side, SignatureType, TickSize, etc.)
+- [x] 金额计算 (maker/taker amount)
+- [x] OrderBuilder 实现
+- [x] 限价单创建和签名
+- [x] 价格验证和舍入
+- [x] Salt 生成
+- [x] 完整文档
+
+#### 下一步
+
+- [ ] v0.2-orders - 订单 CRUD, 交易历史
+
+---
+
 ### Session 2024-12-31-010
 
 **日期**: 2024-12-31  

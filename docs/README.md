@@ -29,11 +29,18 @@ docs/
 │   ├── secret.md         # 对应 src/types/secret.zig
 │   ├── address.md        # 对应 src/types/address.zig
 │   └── uuid.md           # 对应 src/types/uuid.zig
-└── crypto/               # 镜像 src/crypto/
+├── crypto/               # 镜像 src/crypto/
+│   ├── README.md         # 模块概述
+│   ├── keccak.md         # 对应 src/crypto/keccak.zig
+│   ├── ecdsa.md          # 对应 src/crypto/ecdsa.zig
+│   └── hmac.md           # 对应 src/crypto/hmac.zig
+├── signer/               # 镜像 src/signer/
+│   └── README.md         # 钱包和签名
+├── auth/                 # 镜像 src/auth/
+│   └── README.md         # L1/L2 认证
+└── order/                # 镜像 src/order/
     ├── README.md         # 模块概述
-    ├── keccak.md         # 对应 src/crypto/keccak.zig
-    ├── ecdsa.md          # 对应 src/crypto/ecdsa.zig
-    └── hmac.md           # 对应 src/crypto/hmac.zig
+    └── builder.md        # 订单构建器
 ```
 
 ## 设计文档
@@ -77,6 +84,31 @@ docs/
 | `src/crypto/keccak.zig` | [crypto/keccak.md](./crypto/keccak.md) | ✅ |
 | `src/crypto/ecdsa.zig` | [crypto/ecdsa.md](./crypto/ecdsa.md) | ✅ |
 | `src/crypto/hmac.zig` | [crypto/hmac.md](./crypto/hmac.md) | ✅ |
+
+### signer/ - 签名模块
+
+| 源文件 | 文档 | 状态 |
+|--------|------|------|
+| `src/signer/mod.zig` | [signer/README.md](./signer/README.md) | ✅ |
+| `src/signer/wallet.zig` | [signer/README.md](./signer/README.md) | ✅ |
+| `src/signer/eip712.zig` | [signer/README.md](./signer/README.md) | ✅ |
+
+### auth/ - 认证模块
+
+| 源文件 | 文档 | 状态 |
+|--------|------|------|
+| `src/auth/mod.zig` | [auth/README.md](./auth/README.md) | ✅ |
+| `src/auth/l1.zig` | [auth/README.md](./auth/README.md) | ✅ |
+| `src/auth/l2.zig` | [auth/README.md](./auth/README.md) | ✅ |
+
+### order/ - 订单模块
+
+| 源文件 | 文档 | 状态 |
+|--------|------|------|
+| `src/order/mod.zig` | [order/README.md](./order/README.md) | ✅ |
+| `src/order/types.zig` | [order/builder.md](./order/builder.md) | ✅ |
+| `src/order/calculator.zig` | [order/builder.md](./order/builder.md) | ✅ |
+| `src/order/builder.zig` | [order/builder.md](./order/builder.md) | ✅ |
 
 ## API 覆盖统计
 
