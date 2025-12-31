@@ -49,7 +49,7 @@ const book = try client.getOrderBook(token_id);
 | Address | `src/types/address.zig` | ✅ 完成 | 15 tests |
 | UUID | `src/types/uuid.zig` | ✅ 完成 | 15 tests |
 | mod.zig | `src/types/mod.zig` | ✅ 完成 | 6 tests |
-| ContractConfig | `src/types/contracts.zig` | ⏳ 待开始 | - |
+| ContractConfig | `src/types/contracts.zig` | ✅ 完成 | 9 tests |
 
 ### 公共端点 (L0 - 无需认证)
 
@@ -440,3 +440,4 @@ try ws.run();
 | 2024-12-31 | v0.4 完成：消息解析器、MarketChannel、UserChannel、文档 (343 tests) |
 | 2024-12-31 | v0.5 完成：订单评分、市场分析、批量端点、API Key 管理 (351 tests) |
 | 2026-01-01 | v0.6 开始：L1 认证端点 (createApiKey/deriveApiKey/createOrDeriveApiKey)、采样市场端点、Readonly API Key 端点 (356 tests) |
+| 2026-01-01 | v0.6 完成：ContractConfig 类型、CI/CD 配置、示例文件、修复 main.zig (365 tests) |

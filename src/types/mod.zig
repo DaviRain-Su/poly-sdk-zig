@@ -25,6 +25,7 @@ pub const decimal = @import("decimal.zig");
 pub const address = @import("address.zig");
 pub const uuid = @import("uuid.zig");
 pub const secret = @import("secret.zig");
+pub const contracts = @import("contracts.zig");
 
 // Convenience type aliases
 pub const Decimal = decimal.Decimal;
@@ -32,6 +33,10 @@ pub const Address = address.Address;
 pub const UUID = uuid.UUID;
 pub const Secret = secret.Secret;
 pub const SecretString = secret.SecretString;
+
+// Contract configuration types
+pub const ContractConfig = contracts.ContractConfig;
+pub const Chain = contracts.Chain;
 
 // ============================================================================
 // Tests - verify all modules compile and work together
@@ -59,6 +64,10 @@ test "uuid module" {
 
 test "secret module" {
     _ = @import("secret.zig");
+}
+
+test "contracts module" {
+    _ = @import("contracts.zig");
 }
 
 test "type interop example" {
