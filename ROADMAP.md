@@ -15,7 +15,7 @@
 ## 当前状态
 
 **版本**: v0.3.0 (Builder、RFQ 与扩展)  
-**阶段**: v0.3 - 🔨 进行中
+**阶段**: v0.3 - ✅ 已完成
 
 ---
 
@@ -248,16 +248,16 @@ const quotes = try client.rfq.getRfqQuotes(.{ .request_id = request.request_id }
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `POST /rfq/request` | `rfq.createRfqRequest()` | ⏳ |
-| `DELETE /rfq/request` | `rfq.cancelRfqRequest()` | ⏳ |
-| `GET /rfq/data/requests` | `rfq.getRfqRequests()` | ⏳ |
-| `POST /rfq/quote` | `rfq.createRfqQuote()` | ⏳ |
-| `DELETE /rfq/quote` | `rfq.cancelRfqQuote()` | ⏳ |
-| `GET /rfq/data/quotes` | `rfq.getRfqQuotes()` | ⏳ |
-| `GET /rfq/data/best-quote` | `rfq.getRfqBestQuote()` | ⏳ |
-| `POST /rfq/request/accept` | `rfq.acceptRfqQuote()` | ⏳ |
-| `POST /rfq/quote/approve` | `rfq.approveRfqOrder()` | ⏳ |
-| `GET /rfq/config` | `rfq.rfqConfig()` | ⏳ |
+| `POST /rfq/request` | `rfq.createRfqRequest()` | ✅ |
+| `DELETE /rfq/request` | `rfq.cancelRfqRequest()` | ✅ |
+| `GET /rfq/data/requests` | `rfq.getRfqRequests()` | ✅ |
+| `POST /rfq/quote` | `rfq.createRfqQuote()` | ✅ |
+| `DELETE /rfq/quote` | `rfq.cancelRfqQuote()` | ✅ |
+| `GET /rfq/data/quotes` | `rfq.getRfqQuotes()` | ✅ |
+| `GET /rfq/data/best-quote` | `rfq.getRfqBestQuote()` | ✅ |
+| `POST /rfq/request/accept` | `rfq.acceptRfqQuote()` | ✅ |
+| `POST /rfq/quote/approve` | `rfq.approveRfqOrder()` | ✅ |
+| `GET /rfq/config` | `rfq.getRfqConfig()` | ✅ |
 
 ### Heartbeat
 
@@ -341,7 +341,7 @@ try ws.subscribeTrades(token_id, onTrade);
 |------|------|----------|------|
 | v0.1 | 公共 API (L0) | ~20 | ✅ 完成 |
 | v0.2 | 认证与订单 (L1/L2) | ~25 | ✅ 完成 |
-| v0.3 | Builder + RFQ | ~25 | ⏳ 待开始 |
+| v0.3 | Builder + RFQ | ~25 | ✅ 完成 |
 | v0.4 | WebSocket | ~4 | ⏳ 待开始 |
 | v0.5 | 奖励 + 分析 | ~10 | ⏳ 待开始 |
 | **总计** | | **~84** | |
@@ -376,3 +376,4 @@ try ws.subscribeTrades(token_id, onTrade);
 | 2024-12-31 | v0.2-orders 完成：订单发布/查询/取消、交易历史、余额查询、L2 认证集成 |
 | 2024-12-31 | v0.3 开始：市价单(FOK/FAK)、批量订单(postOrders)、Heartbeat 端点 |
 | 2024-12-31 | v0.3 Builder：Builder 认证、API Key 管理、Builder 交易历史 (20 tests) |
+| 2024-12-31 | v0.3 RFQ：RFQ 子客户端、10 个 RFQ 端点、类型定义、集成到 ClobClient (303 tests) |

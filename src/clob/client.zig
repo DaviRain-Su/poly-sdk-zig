@@ -44,6 +44,9 @@ const CreateOrderOptions = root.order.CreateOrderOptions;
 const TimeInForce = root.order.TimeInForce;
 const Wallet = root.signer.Wallet;
 
+// RFQ imports
+const RfqClient = root.rfq.RfqClient;
+
 /// HTTP Error types
 pub const Error = error{
     ConnectionFailed,
@@ -230,6 +233,36 @@ pub const ClobClient = struct {
     /// Check if client has Builder authentication configured
     pub fn hasBuilderAuth(self: *const ClobClient) bool {
         return self.builder_creds != null;
+    }
+
+    /// Get RFQ (Request for Quote) sub-client
+    ///
+    /// Returns an RfqClient that shares the same HTTP connection and
+    /// authentication with the main ClobClient.
+    ///
+    /// ## Example
+    ///
+    /// ```zig
+    /// var client = ClobClient.initWithAuth(allocator, .{}, &wallet, &creds);
+    /// defer client.deinit();
+    ///
+    /// // Create RFQ request
+    /// const request = try client.rfq().createRfqRequest(.{
+    ///     .asset_in = "USDC",
+    ///     .asset_out = token_id,
+    ///     .amount_in = "10000",
+    /// });
+    ///
+    /// // Get best quote
+    /// const best = try client.rfq().getRfqBestQuote(request.request_id);
+    /// ```
+    pub fn rfqClient(self: *ClobClient) RfqClient {
+        return RfqClient.init(
+            self.allocator,
+            &self.http_client,
+            self.config.base_url,
+            self.api_creds,
+        );
     }
 
     /// Build full URL from path
@@ -1498,4 +1531,37 @@ test "ClobClient unauthenticated access to Builder endpoints" {
     // Should return Unauthorized for Builder endpoints without auth
     const result = client.getBuilderTrades(.{});
     try std.testing.expectError(Error.Unauthorized, result);
+}
+
+test "ClobClient.rfqClient returns RfqClient" {
+    var client = ClobClient.init(std.testing.allocator, .{});
+    defer client.deinit();
+
+    const rfq = client.rfqClient();
+
+    // Verify RfqClient has correct configuration
+    try std.testing.expectEqualStrings(BASE_URL_MAINNET, rfq.base_url);
+    try std.testing.expectEqual(@as(?*const ApiCreds, null), rfq.api_creds);
+}
+
+test "ClobClient.rfqClient with auth" {
+    const allocator = std.testing.allocator;
+
+    // Create mock credentials
+    var creds = try ApiCreds.init(allocator, "test-key", "test-secret", "test-pass");
+    defer creds.deinit();
+
+    // Create mock wallet
+    const wallet = try root.signer.Wallet.fromPrivateKeyHex(
+        "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318",
+    );
+
+    var client = ClobClient.initWithAuth(allocator, .{}, &wallet, &creds);
+    defer client.deinit();
+
+    const rfq = client.rfqClient();
+
+    // Verify RfqClient has auth configured
+    try std.testing.expect(rfq.api_creds != null);
+    try std.testing.expectEqualStrings("test-key", rfq.api_creds.?.getApiKey());
 }

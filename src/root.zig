@@ -68,6 +68,9 @@ pub const auth = @import("auth/mod.zig");
 /// Order module (OrderBuilder, types)
 pub const order = @import("order/mod.zig");
 
+/// RFQ (Request for Quote) module
+pub const rfq = @import("rfq/mod.zig");
+
 // Re-export CLOB client at root level for convenience
 pub const ClobClient = clob.ClobClient;
 
@@ -114,6 +117,22 @@ pub const TimeInForce = order.TimeInForce;
 pub const OrderArgs = order.OrderArgs;
 pub const MarketOrderArgs = order.MarketOrderArgs;
 pub const CreateOrderOptions = order.CreateOrderOptions;
+
+// Re-export RFQ types
+pub const RfqClient = rfq.RfqClient;
+pub const RfqError = rfq.RfqError;
+pub const RfqMatchType = rfq.RfqMatchType;
+pub const RfqRequestState = rfq.RfqRequestState;
+pub const RfqQuoteState = rfq.RfqQuoteState;
+pub const RfqRequest = rfq.RfqRequest;
+pub const RfqQuote = rfq.RfqQuote;
+pub const CreateRfqRequestParams = rfq.CreateRfqRequestParams;
+pub const CreateRfqQuoteParams = rfq.CreateRfqQuoteParams;
+pub const AcceptRfqQuoteParams = rfq.AcceptRfqQuoteParams;
+pub const ApproveRfqOrderParams = rfq.ApproveRfqOrderParams;
+pub const GetRfqRequestsParams = rfq.GetRfqRequestsParams;
+pub const GetRfqQuotesParams = rfq.GetRfqQuotesParams;
+pub const RfqConfig = rfq.RfqConfig;
 
 // ============================================================================
 // Tests
@@ -199,4 +218,43 @@ test "all submodules" {
     _ = @import("signer/mod.zig");
     _ = @import("auth/mod.zig");
     _ = @import("order/mod.zig");
+    _ = @import("rfq/mod.zig");
+}
+
+test "rfq module exports" {
+    // Verify RFQ types are accessible
+    _ = RfqClient;
+    _ = RfqError;
+
+    // Test enum types
+    try std.testing.expectEqual(RfqMatchType.COMPLEMENTARY, RfqMatchType.fromString("COMPLEMENTARY").?);
+    try std.testing.expectEqual(RfqRequestState.PENDING, RfqRequestState.fromString("PENDING").?);
+    try std.testing.expectEqual(RfqQuoteState.ACCEPTED, RfqQuoteState.fromString("ACCEPTED").?);
+
+    // Test struct types
+    const request = RfqRequest{
+        .request_id = "req-123",
+        .state = "PENDING",
+    };
+    try std.testing.expectEqualStrings("req-123", request.request_id);
+
+    const quote = RfqQuote{
+        .quote_id = "quote-456",
+        .match_type = "COMPLEMENTARY",
+    };
+    try std.testing.expectEqualStrings("quote-456", quote.quote_id);
+
+    // Test parameter types
+    const create_params = CreateRfqRequestParams{
+        .asset_in = "USDC",
+        .asset_out = "token-123",
+        .amount_in = "10000",
+    };
+    try std.testing.expectEqualStrings("USDC", create_params.asset_in);
+
+    const config = RfqConfig{
+        .min_request_amount = "1000",
+        .enabled = true,
+    };
+    try std.testing.expect(config.enabled);
 }
