@@ -17,6 +17,7 @@
 docs/
 ├── README.md           # 本文件
 ├── design/
+│   ├── api-coverage.md # API 功能覆盖分析
 │   └── rfc/            # 设计决策（Why）
 │       ├── 001-decimal-type.md
 │       ├── 002-arraylist-allocator.md
@@ -35,7 +36,13 @@ docs/
 | `src/types/address.zig` | - | ⏳ 未实现 |
 | `src/types/uuid.zig` | - | ⏳ 未实现 |
 
-## RFCs
+## 设计文档
+
+### API 覆盖分析
+
+[api-coverage.md](./design/api-coverage.md) - 对比官方 Python/TypeScript 客户端，分析我们需要实现的所有 API。
+
+### RFCs
 
 设计决策文档，包含问题、方案和备选方案。
 

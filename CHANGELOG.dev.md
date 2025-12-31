@@ -6,6 +6,87 @@
 
 ## 会话记录
 
+### Session 2024-12-31-003
+
+**日期**: 2024-12-31  
+**时长**: ~20 分钟  
+**目标**: 参考官方仓库完善项目文档体系
+
+#### 参考的官方仓库
+
+- [clob-client](https://github.com/Polymarket/clob-client) - TypeScript 客户端
+- [py-clob-client](https://github.com/Polymarket/py-clob-client) - Python 客户端
+- [agents](https://github.com/Polymarket/agents) - AI 交易代理
+
+#### 完成的工作
+
+1. **新增项目文件**
+   - `CONTRIBUTING.md` - 贡献指南
+   - `SECURITY.md` - 安全漏洞报告政策
+   - `.env.example` - 环境变量模板
+   - `LICENSE` - MIT 许可证
+   - `examples/README.md` - 示例代码说明
+   - `examples/basic_types.zig` - 基础类型使用示例
+
+2. **README.md 重构**
+   - 添加徽章（Zig 版本、许可证）
+   - 添加可复制粘贴的代码示例
+   - 添加配置说明和签名类型表
+   - 添加相关项目链接
+   - 添加服务条款警告
+   - 更接近官方仓库风格
+
+3. **文档体系完善**
+   - 参考 py-clob-client 的 CONTRIBUTING.md 和 SECURITY.md
+   - 参考 agents 的 examples/ 目录结构
+   - 添加 Polymarket API 文档链接
+
+4. **API 功能覆盖分析** (`docs/design/api-coverage.md`)
+   - 对比官方 Python/TypeScript 客户端源码
+   - 列出所有 API 端点（L0/L1/L2/Builder）
+   - 识别缺失功能并分类
+   - 扩展 ROADMAP 覆盖完整 API
+
+5. **ROADMAP.md 大幅扩展**
+   - v0.1: 添加所有公共端点（18 个）
+   - v0.2: 添加 L1/L2 认证端点（20+ 个）
+   - v0.3: 添加 Builder 和 RFQ 支持
+   - v0.4: WebSocket 实时订阅
+   - v0.5: 奖励系统和市场分析
+   - v1.0: 稳定版发布目标
+
+#### 发现的缺失功能
+
+**高优先级（核心交易）**：
+- 市价单（create_market_order）
+- 批量订单操作
+- 交易历史查询
+- 账户余额查询
+
+**中优先级（完整覆盖）**：
+- 简化市场端点
+- 最后成交价
+- 费率查询
+- 通知系统
+
+**低优先级（高级功能）**：
+- RFQ 客户端
+- Builder 程序
+- 奖励系统
+
+#### 学到的经验
+
+官方仓库的特点：
+- README 包含可直接复制使用的代码
+- 分级使用说明（只读 → 认证 → 交易）
+- 重要注意事项（Token Allowances、签名类型）
+- 相关项目链接
+- 服务条款警告
+- **认证分三级**：L0（无认证）、L1（钱包签名）、L2（API Key）
+- **Builder 是独立的认证流程**，用于做市商
+
+---
+
 ### Session 2024-12-31-002
 
 **日期**: 2024-12-31  
