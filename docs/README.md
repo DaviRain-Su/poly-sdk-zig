@@ -31,16 +31,21 @@ docs/
 │   └── uuid.md           # 对应 src/types/uuid.zig
 ├── crypto/               # 镜像 src/crypto/
 │   ├── README.md         # 模块概述
-│   ├── keccak.md         # 对应 src/crypto/keccak.zig
-│   ├── ecdsa.md          # 对应 src/crypto/ecdsa.zig
-│   └── hmac.md           # 对应 src/crypto/hmac.zig
+│   ├── keccak.md         # Keccak256 哈希
+│   ├── ecdsa.md          # secp256k1 ECDSA 签名
+│   └── hmac.md           # HMAC-SHA256 认证
 ├── signer/               # 镜像 src/signer/
-│   └── README.md         # 钱包和签名
+│   ├── README.md         # 模块概述
+│   ├── wallet.md         # Wallet 类型
+│   └── eip712.md         # EIP-712 签名
 ├── auth/                 # 镜像 src/auth/
-│   └── README.md         # L1/L2 认证
-└── order/                # 镜像 src/order/
-    ├── README.md         # 模块概述
-    └── builder.md        # 订单构建器
+│   ├── l1-auth.md        # L1 认证 (EIP-712)
+│   └── l2-auth.md        # L2 认证 (HMAC-SHA256)
+├── order/                # 镜像 src/order/
+│   ├── README.md         # 模块概述
+│   └── builder.md        # 订单构建器
+└── clob/                 # 镜像 src/clob/
+    └── orders.md         # 订单管理 API
 ```
 
 ## 设计文档
@@ -90,16 +95,18 @@ docs/
 | 源文件 | 文档 | 状态 |
 |--------|------|------|
 | `src/signer/mod.zig` | [signer/README.md](./signer/README.md) | ✅ |
-| `src/signer/wallet.zig` | [signer/README.md](./signer/README.md) | ✅ |
-| `src/signer/eip712.zig` | [signer/README.md](./signer/README.md) | ✅ |
+| `src/signer/wallet.zig` | [signer/wallet.md](./signer/wallet.md) | ✅ |
+| `src/signer/eip712.zig` | [signer/eip712.md](./signer/eip712.md) | ✅ |
 
 ### auth/ - 认证模块
 
 | 源文件 | 文档 | 状态 |
 |--------|------|------|
-| `src/auth/mod.zig` | [auth/README.md](./auth/README.md) | ✅ |
-| `src/auth/l1.zig` | [auth/README.md](./auth/README.md) | ✅ |
-| `src/auth/l2.zig` | [auth/README.md](./auth/README.md) | ✅ |
+| `src/auth/mod.zig` | - | ✅ |
+| `src/auth/l1.zig` | [auth/l1-auth.md](./auth/l1-auth.md) | ✅ |
+| `src/auth/l2.zig` | [auth/l2-auth.md](./auth/l2-auth.md) | ✅ |
+| `src/auth/api_creds.zig` | [auth/l1-auth.md](./auth/l1-auth.md) | ✅ |
+| `src/auth/headers.zig` | [auth/l1-auth.md](./auth/l1-auth.md) | ✅ |
 
 ### order/ - 订单模块
 
@@ -109,6 +116,20 @@ docs/
 | `src/order/types.zig` | [order/builder.md](./order/builder.md) | ✅ |
 | `src/order/calculator.zig` | [order/builder.md](./order/builder.md) | ✅ |
 | `src/order/builder.zig` | [order/builder.md](./order/builder.md) | ✅ |
+
+### clob/ - CLOB 客户端模块
+
+| 源文件 | 文档 | 状态 |
+|--------|------|------|
+| `src/clob/mod.zig` | - | ✅ |
+| `src/clob/client.zig` | [clob/orders.md](./clob/orders.md) | ✅ |
+| `src/clob/types/mod.zig` | - | ✅ |
+| `src/clob/types/enums.zig` | - | ✅ |
+| `src/clob/types/market.zig` | - | ✅ |
+| `src/clob/types/book.zig` | - | ✅ |
+| `src/clob/types/order.zig` | [clob/orders.md](./clob/orders.md) | ✅ |
+| `src/clob/types/trade.zig` | [clob/orders.md](./clob/orders.md) | ✅ |
+| `src/clob/types/account.zig` | [clob/orders.md](./clob/orders.md) | ✅ |
 
 ## API 覆盖统计
 
