@@ -1,55 +1,55 @@
 # poly-sdk-zig
 
-**Trade on Polymarket with Zig.** A native Zig client for the Polymarket CLOB API.
+**使用 Zig 在 Polymarket 上交易。** Polymarket CLOB API 的原生 Zig 客户端。
 
 ---
 
-## Press Release
+## 新闻稿
 
-*FOR IMMEDIATE RELEASE*
+*即时发布*
 
-**Polymarket Trading Now Available for Zig Developers**
+**Polymarket 交易现已支持 Zig 开发者**
 
-Developers can now build high-performance trading bots and applications for Polymarket using Zig. The poly-sdk-zig library provides type-safe access to Polymarket's prediction markets with zero-cost abstractions and compile-time safety guarantees.
+开发者现在可以使用 Zig 为 Polymarket 构建高性能交易机器人和应用程序。poly-sdk-zig 库提供类型安全的 Polymarket 预测市场访问，具有零成本抽象和编译时安全保证。
 
-"We built this because existing clients are in Python and Rust. Zig gives us the performance of Rust with simpler tooling and no hidden allocations," said the development team.
+"我们构建这个是因为现有客户端只有 Python 和 Rust 版本。Zig 给我们 Rust 的性能，但工具更简单，没有隐藏的内存分配，"开发团队说。
 
-Key benefits:
-- **Type-safe**: Compile-time errors for invalid API usage
-- **Precise**: Decimal type for exact financial calculations (no floating-point errors)
-- **Explicit**: No hidden allocations, clear ownership semantics
-- **Fast**: Zero-cost abstractions, no runtime overhead
+核心优势：
+- **类型安全**: 无效 API 使用会产生编译时错误
+- **精确**: Decimal 类型用于精确的金融计算（无浮点误差）
+- **显式**: 无隐藏分配，清晰的所有权语义
+- **快速**: 零成本抽象，无运行时开销
 
 ---
 
-## FAQ
+## 常见问题
 
-### What is this?
+### 这是什么？
 
-A Zig library to interact with [Polymarket](https://polymarket.com), the world's largest prediction market. You can:
-- Query market data (prices, order books)
-- Place and manage orders
-- Subscribe to real-time updates (planned)
+一个用于与 [Polymarket](https://polymarket.com)（世界最大的预测市场）交互的 Zig 库。你可以：
+- 查询市场数据（价格、订单簿）
+- 下单和管理订单
+- 订阅实时更新（计划中）
 
-### Why Zig instead of Python/Rust?
+### 为什么用 Zig 而不是 Python/Rust？
 
-| Concern | Python | Rust | Zig |
-|---------|--------|------|-----|
-| Performance | Slow | Fast | Fast |
-| Memory safety | GC | Borrow checker | Manual + tools |
-| Build time | N/A | Slow | Fast |
-| Dependencies | Many | Many | Minimal |
-| Learning curve | Easy | Steep | Moderate |
+| 关注点 | Python | Rust | Zig |
+|--------|--------|------|-----|
+| 性能 | 慢 | 快 | 快 |
+| 内存安全 | GC | 借用检查器 | 手动 + 工具 |
+| 构建时间 | N/A | 慢 | 快 |
+| 依赖 | 多 | 多 | 少 |
+| 学习曲线 | 简单 | 陡峭 | 适中 |
 
-Zig hits a sweet spot: fast like Rust, but simpler tooling and faster builds.
+Zig 是一个平衡点：像 Rust 一样快，但工具更简单，构建更快。
 
-### What's the current status?
+### 当前状态是什么？
 
-🚧 **Under Development** - Not ready for production.
+🚧 **开发中** - 尚未准备好用于生产。
 
-See [ROADMAP.md](./ROADMAP.md) for current progress.
+查看 [ROADMAP.md](./ROADMAP.md) 了解当前进度。
 
-### How do I install it?
+### 如何安装？
 
 ```zig
 // build.zig.zon
@@ -61,12 +61,12 @@ See [ROADMAP.md](./ROADMAP.md) for current progress.
 },
 ```
 
-### How do I use it?
+### 如何使用？
 
 ```zig
 const poly = @import("poly");
 
-// Query markets (no auth required)
+// 查询市场（无需认证）
 var client = try poly.Client.init(allocator, .{});
 defer client.deinit();
 
@@ -75,7 +75,7 @@ for (markets) |m| {
     std.debug.print("{s}\n", .{m.question});
 }
 
-// Place orders (auth required)
+// 下单（需要认证）
 var auth = try client.authenticate(&signer);
 try auth.postOrder(.{
     .token_id = "0x...",
@@ -85,29 +85,30 @@ try auth.postOrder(.{
 });
 ```
 
-### What Zig version do I need?
+### 需要什么 Zig 版本？
 
 Zig >= 0.15.2
 
-### Where can I learn more?
+### 哪里可以了解更多？
 
-- [ROADMAP.md](./ROADMAP.md) - Development plan
-- [docs/](./docs/) - Documentation
-- [Polymarket API Docs](https://docs.polymarket.com)
-
----
-
-## Quick Links
-
-| Resource | Description |
-|----------|-------------|
-| [ROADMAP.md](./ROADMAP.md) | Source of Truth - what's planned |
-| [stories/](./stories/) | Work units for contributors |
-| [AGENTS.md](./AGENTS.md) | Coding guidelines |
-| [docs/](./docs/) | Documentation |
+- [ROADMAP.md](./ROADMAP.md) - 开发计划
+- [docs/](./docs/) - 文档
+- [Polymarket API 文档](https://docs.polymarket.com)
 
 ---
 
-## License
+## 快速链接
+
+| 资源 | 描述 |
+|------|------|
+| [ROADMAP.md](./ROADMAP.md) | 唯一真相来源 - 版本规划 |
+| [CHANGELOG.dev.md](./CHANGELOG.dev.md) | 开发日志 - 会话记录、进度追踪 |
+| [stories/](./stories/) | 工作单元（Stories） |
+| [AGENTS.md](./AGENTS.md) | AI 编码规范 |
+| [docs/](./docs/) | 模块文档和设计决策 |
+
+---
+
+## 许可证
 
 MIT

@@ -1,92 +1,92 @@
 # Decimal
 
-> **Source**: [`src/types/decimal.zig`](../../src/types/decimal.zig)
+> **源文件**: [`src/types/decimal.zig`](../../src/types/decimal.zig)
 > **RFC**: [001-decimal-type](../design/rfc/001-decimal-type.md)
 
-High-precision decimal type for financial calculations.
+用于金融计算的高精度十进制类型。
 
-## Why
+## 为什么需要
 
-Floating-point (`f64`) has precision issues. `0.1 + 0.2 != 0.3` in IEEE 754.
+浮点数（`f64`）有精度问题。在 IEEE 754 中 `0.1 + 0.2 != 0.3`。
 
-For trading, we need **exact** decimal arithmetic.
+对于交易，我们需要**精确**的十进制算术。
 
-## Design
+## 设计
 
-Fixed-point representation: `mantissa * 10^(-scale)`
+定点表示：`mantissa * 10^(-scale)`
 
 ```zig
 pub const Decimal = struct {
-    mantissa: i128,  // Signed integer
-    scale: u8,       // Decimal places (0-18)
+    mantissa: i128,  // 有符号整数
+    scale: u8,       // 小数位数 (0-18)
 };
 ```
 
-| Value | mantissa | scale |
-|-------|----------|-------|
+| 值 | mantissa | scale |
+|----|----------|-------|
 | `0.65` | 65 | 2 |
 | `100` | 100 | 0 |
 | `-0.001` | -1 | 3 |
 
-## Usage
+## 使用方法
 
 ```zig
 const std = @import("std");
 const Decimal = @import("poly").Decimal;
 
-// Parse from string
+// 从字符串解析
 const price = try Decimal.fromString("0.65");
 const size = try Decimal.fromString("100");
 
-// Arithmetic
-const total = price.mul(size);  // 65.00 (exact)
+// 算术运算
+const total = price.mul(size);  // 65.00（精确）
 
-// Comparison
+// 比较
 if (price.lessThan(Decimal.ONE)) {
     // price < 1.0
 }
 
-// Format
+// 格式化
 std.debug.print("Total: {}\n", .{total});  // "Total: 65"
 ```
 
 ## API
 
-### Creation
+### 创建
 
-| Method | Description |
-|--------|-------------|
-| `fromString(str)` | Parse from `"123.456"` |
-| `fromInt(i64)` | From integer |
-| `fromParts(mantissa, scale)` | Direct construction |
+| 方法 | 描述 |
+|------|------|
+| `fromString(str)` | 从 `"123.456"` 解析 |
+| `fromInt(i64)` | 从整数创建 |
+| `fromParts(mantissa, scale)` | 直接构造 |
 
-### Arithmetic
+### 算术
 
-| Method | Description |
-|--------|-------------|
-| `add(other)` | Addition |
-| `sub(other)` | Subtraction |
-| `mul(other)` | Multiplication |
-| `div(other)` | Division (returns error if zero) |
+| 方法 | 描述 |
+|------|------|
+| `add(other)` | 加法 |
+| `sub(other)` | 减法 |
+| `mul(other)` | 乘法 |
+| `div(other)` | 除法（除零返回错误） |
 
-### Comparison
+### 比较
 
-| Method | Description |
-|--------|-------------|
-| `equal(other)` | Equality |
-| `lessThan(other)` | Less than |
-| `greaterThan(other)` | Greater than |
-| `compare(other)` | Returns -1, 0, or 1 |
+| 方法 | 描述 |
+|------|------|
+| `equal(other)` | 相等 |
+| `lessThan(other)` | 小于 |
+| `greaterThan(other)` | 大于 |
+| `compare(other)` | 返回 -1, 0, 或 1 |
 
-### Constants
+### 常量
 
-| Constant | Value |
-|----------|-------|
+| 常量 | 值 |
+|------|-----|
 | `ZERO` | 0 |
 | `ONE` | 1 |
 | `MAX_SCALE` | 18 |
 
-## Tests
+## 测试
 
 ```bash
 zig test src/types/decimal.zig

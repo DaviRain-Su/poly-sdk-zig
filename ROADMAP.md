@@ -1,18 +1,18 @@
-# ROADMAP - Source of Truth
+# ROADMAP - 唯一真相来源
 
-This is the single source of truth for project planning. All work derives from here.
+这是项目规划的唯一真相来源。所有工作都从这里派生。
 
-## Current Status
+## 当前状态
 
-**Version**: v0.0.0 (Pre-release)  
-**Phase**: v0.1 - Core Foundation
+**版本**: v0.0.0 (预发布)  
+**阶段**: v0.1 - 核心基础
 
 ---
 
-## v0.1 - Core Foundation
+## v0.1 - 核心基础
 
-> **Goal**: Basic types, HTTP client, and read-only public API.
-> **Deliverable**: Query market data without authentication.
+> **目标**: 基础类型、HTTP 客户端和只读公共 API。
+> **交付物**: 无需认证即可查询市场数据。
 
 ```zig
 var client = try poly.Client.init(allocator, .{});
@@ -21,76 +21,78 @@ const markets = try client.markets(.{});
 
 ### Stories
 
-| Story | Status | Depends On |
-|-------|--------|------------|
-| [v0.1-types](./stories/v0.1-types.md) | 🔨 In Progress | - |
-| [v0.1-error](./stories/v0.1-error.md) | ⏳ Pending | - |
-| [v0.1-http](./stories/v0.1-http.md) | ⏳ Pending | v0.1-error |
-| [v0.1-public-api](./stories/v0.1-public-api.md) | ⏳ Pending | v0.1-http, v0.1-types |
+| Story | 状态 | 依赖 |
+|-------|------|------|
+| [v0.1-types](./stories/v0.1-types.md) | 🔨 进行中 | - |
+| [v0.1-error](./stories/v0.1-error.md) | ⏳ 待开始 | - |
+| [v0.1-http](./stories/v0.1-http.md) | ⏳ 待开始 | v0.1-error |
+| [v0.1-public-api](./stories/v0.1-public-api.md) | ⏳ 待开始 | v0.1-http, v0.1-types |
 
-### Progress
+### 进度
 
-- [x] Project setup (build.zig, structure)
-- [x] Decimal type implemented
-- [ ] Address, UUID, Secret types
-- [ ] Error types
-- [ ] HTTP client
-- [ ] Public API endpoints
+- [x] 项目设置 (build.zig, 结构)
+- [x] Decimal 类型实现
+- [x] Secret 类型实现
+- [ ] Address, UUID 类型
+- [ ] 错误类型
+- [ ] HTTP 客户端
+- [ ] 公共 API 端点
 
 ---
 
-## v0.2 - Authentication & Orders
+## v0.2 - 认证与订单
 
-> **Goal**: Full authentication and order management.
-> **Deliverable**: Place and manage orders.
+> **目标**: 完整的认证和订单管理。
+> **交付物**: 下单和管理订单。
 
 ```zig
 var auth = try client.authenticate(&signer);
 try auth.postOrder(order);
 ```
 
-### Stories (Planned)
+### Stories (计划中)
 
-| Story | Status | Description |
-|-------|--------|-------------|
-| v0.2-crypto | ⏳ Pending | secp256k1, keccak256, HMAC |
-| v0.2-l1-auth | ⏳ Pending | EIP-712 signing |
-| v0.2-l2-auth | ⏳ Pending | HMAC request signing |
-| v0.2-orders | ⏳ Pending | Order builder, post/cancel |
+| Story | 状态 | 描述 |
+|-------|------|------|
+| v0.2-crypto | ⏳ 待开始 | secp256k1, keccak256, HMAC |
+| v0.2-l1-auth | ⏳ 待开始 | EIP-712 签名 |
+| v0.2-l2-auth | ⏳ 待开始 | HMAC 请求签名 |
+| v0.2-orders | ⏳ 待开始 | 订单构建器, 下单/取消 |
 
 ---
 
-## v0.3 - Builder & Extras
+## v0.3 - Builder 与扩展
 
-> **Goal**: Builder program and additional features.
+> **目标**: Builder 程序和其他功能。
 
 ---
 
 ## v0.4 - WebSocket
 
-> **Goal**: Real-time data subscriptions.
+> **目标**: 实时数据订阅。
 
 ---
 
-## v1.0 - Stable Release
+## v1.0 - 稳定版发布
 
-> **Goal**: Production-ready, fully tested.
-
----
-
-## Status Legend
-
-| Icon | Meaning |
-|------|---------|
-| ⏳ | Pending |
-| 🔨 | In Progress |
-| ✅ | Complete |
-| ❌ | Blocked |
+> **目标**: 生产就绪，完整测试。
 
 ---
 
-## Changelog
+## 状态图例
 
-| Date | Change |
-|------|--------|
-| 2024-12-31 | Initial ROADMAP, v0.1 stories created |
+| 图标 | 含义 |
+|------|------|
+| ⏳ | 待开始 |
+| 🔨 | 进行中 |
+| ✅ | 已完成 |
+| ❌ | 被阻塞 |
+
+---
+
+## 变更日志
+
+| 日期 | 变更 |
+|------|------|
+| 2024-12-31 | 初始 ROADMAP，创建 v0.1 stories |
+| 2024-12-31 | Secret 类型实现完成 |

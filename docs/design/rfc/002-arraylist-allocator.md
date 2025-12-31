@@ -1,109 +1,109 @@
-# RFC-002: ArrayList Allocator Pattern (Zig 0.15)
+# RFC-002: ArrayList Allocator 模式 (Zig 0.15)
 
-| Field | Value |
-|-------|-------|
-| **Status** | Accepted |
-| **Created** | 2024-12-31 |
-| **Author** | - |
+| 字段 | 值 |
+|------|-----|
+| **状态** | 已采纳 |
+| **创建日期** | 2024-12-31 |
+| **作者** | - |
 
-## Problem
+## 问题
 
-Zig 0.15 changed `std.ArrayList` to be **Unmanaged** by default. This means:
+Zig 0.15 将 `std.ArrayList` 默认改为 **Unmanaged**。这意味着：
 
 ```zig
-// ❌ This code compiles but is WRONG in Zig 0.15
+// ❌ 这段代码在 Zig 0.15 中能编译但是错误的
 var list = try std.ArrayList(u8).initCapacity(allocator, 16);
-try list.append(item);  // ERROR: missing allocator parameter
+try list.append(item);  // 错误：缺少 allocator 参数
 ```
 
-The correct usage is:
+正确的用法是：
 
 ```zig
-// ✅ Correct in Zig 0.15
+// ✅ Zig 0.15 中正确
 try list.append(allocator, item);
 ```
 
-This is a **breaking change** from earlier Zig versions and a common source of bugs.
+这是相对早期 Zig 版本的**破坏性变更**，是一个常见的 bug 来源。
 
-## Requirements
+## 需求
 
-1. All code must compile correctly on Zig 0.15.2+
-2. Memory allocation patterns must be explicit
-3. Prevent runtime panics from incorrect ArrayList usage
+1. 所有代码必须在 Zig 0.15.2+ 上正确编译
+2. 内存分配模式必须显式
+3. 防止由于错误的 ArrayList 使用导致的运行时 panic
 
-## Proposal
+## 提案
 
-### Rule 1: Always use `initCapacity`
+### 规则 1：始终使用 `initCapacity`
 
 ```zig
-// ❌ Don't use init()
+// ❌ 不要使用 init()
 var list = std.ArrayList(T).init(allocator);
 
-// ✅ Use initCapacity() with estimated size
+// ✅ 使用 initCapacity() 并估计大小
 var list = try std.ArrayList(T).initCapacity(allocator, 16);
 ```
 
-### Rule 2: Pass allocator to mutation methods
+### 规则 2：向变更方法传递 allocator
 
-| Method | Zig 0.14 | Zig 0.15 |
-|--------|----------|----------|
+| 方法 | Zig 0.14 | Zig 0.15 |
+|------|----------|----------|
 | `append` | `list.append(item)` | `list.append(allocator, item)` |
 | `appendSlice` | `list.appendSlice(items)` | `list.appendSlice(allocator, items)` |
 | `addOne` | `list.addOne()` | `list.addOne(allocator)` |
 | `toOwnedSlice` | `list.toOwnedSlice()` | `list.toOwnedSlice(allocator)` |
 | `ensureTotalCapacity` | `list.ensureTotalCapacity(n)` | `list.ensureTotalCapacity(allocator, n)` |
 
-### Rule 3: AssumeCapacity variants don't need allocator
+### 规则 3：AssumeCapacity 变体不需要 allocator
 
 ```zig
-// These are safe without allocator (no reallocation)
+// 这些不需要 allocator 是安全的（无重新分配）
 list.appendAssumeCapacity(item);
 list.addOneAssumeCapacity();
 ```
 
-## Alternatives Considered
+## 备选方案
 
-### Alternative 1: Use Managed ArrayList wrapper
+### 备选方案 1：使用 Managed ArrayList 包装器
 
-Create a wrapper that stores the allocator internally.
+创建一个内部存储 allocator 的包装器。
 
-**Pros**: Cleaner API, matches old behavior
-**Cons**: Extra indirection, non-idiomatic Zig
+**优点**: 更干净的 API，匹配旧行为
+**缺点**: 额外的间接，非惯用 Zig
 
-**Decision**: Rejected - follow Zig idioms, be explicit about allocation
+**决定**: 拒绝 - 遵循 Zig 惯例，显式分配
 
-### Alternative 2: Use ArrayListAligned
+### 备选方案 2：使用 ArrayListAligned
 
-**Pros**: Different API, might be clearer
-**Cons**: Still unmanaged in 0.15, same problem
+**优点**: 不同的 API，可能更清晰
+**缺点**: 在 0.15 中仍然是 unmanaged，同样的问题
 
-**Decision**: Rejected - doesn't solve the problem
+**决定**: 拒绝 - 不能解决问题
 
-## Decision
+## 决定
 
-**Follow Zig 0.15 conventions explicitly**:
+**明确遵循 Zig 0.15 约定**：
 
-1. Document the pattern in AGENTS.md
-2. Include quick reference table
-3. All code reviews must check ArrayList usage
+1. 在 AGENTS.md 中记录该模式
+2. 包含快速参考表
+3. 所有代码审查必须检查 ArrayList 使用
 
-## Implementation
+## 实现
 
-Add to AGENTS.md:
+添加到 AGENTS.md：
 
 ```zig
-// Zig 0.15 ArrayList API Quick Reference
-| Method | Needs allocator |
-|--------|----------------|
-| initCapacity(allocator, n) | Yes |
-| deinit() | No |
-| append(allocator, item) | Yes |
-| appendSlice(allocator, items) | Yes |
-| toOwnedSlice(allocator) | Yes |
-| appendAssumeCapacity(item) | No |
+// Zig 0.15 ArrayList API 快速参考
+| 方法 | 需要 allocator |
+|------|----------------|
+| initCapacity(allocator, n) | 是 |
+| deinit() | 否 |
+| append(allocator, item) | 是 |
+| appendSlice(allocator, items) | 是 |
+| toOwnedSlice(allocator) | 是 |
+| appendAssumeCapacity(item) | 否 |
 ```
 
-## References
+## 参考资料
 
-- [Zig 0.15 Release Notes](https://ziglang.org/download/0.15.0/release-notes.html)
-- [std.ArrayList source](https://github.com/ziglang/zig/blob/master/lib/std/array_list.zig)
+- [Zig 0.15 发布说明](https://ziglang.org/download/0.15.0/release-notes.html)
+- [std.ArrayList 源代码](https://github.com/ziglang/zig/blob/master/lib/std/array_list.zig)

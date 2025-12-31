@@ -1,39 +1,39 @@
-# RFC-003: Secret Type for Sensitive Data
+# RFC-003: 敏感数据的 Secret 类型
 
-| Field | Value |
-|-------|-------|
-| **Status** | Accepted |
-| **Created** | 2024-12-31 |
-| **Author** | - |
+| 字段 | 值 |
+|------|-----|
+| **状态** | 已采纳 |
+| **创建日期** | 2024-12-31 |
+| **作者** | - |
 
-## Problem
+## 问题
 
-API keys, private keys, and passphrases can be accidentally leaked through:
+API 密钥、私钥和密码可能通过以下方式意外泄露：
 
-1. Debug logging: `std.log.debug("creds: {}", .{credentials});`
-2. Error messages: `return error.AuthFailed; // may include key in stack trace`
-3. Core dumps and crash reports
+1. 调试日志：`std.log.debug("creds: {}", .{credentials});`
+2. 错误消息：`return error.AuthFailed; // 可能在堆栈跟踪中包含密钥`
+3. 核心转储和崩溃报告
 
 ```zig
-// Dangerous: raw sensitive data
+// 危险：原始敏感数据
 const Credentials = struct {
     api_key: []const u8,
     passphrase: []const u8,
 };
 
-std.log.info("Using creds: {any}", .{creds});  // LEAKS SECRETS!
+std.log.info("Using creds: {any}", .{creds});  // 泄露密钥！
 ```
 
-## Requirements
+## 需求
 
-1. Prevent accidental logging of sensitive values
-2. Allow intentional access when needed
-3. Zero runtime overhead for normal operations
-4. Work with Zig's format system
+1. 防止敏感值的意外日志记录
+2. 需要时允许有意访问
+3. 正常操作零运行时开销
+4. 与 Zig 的格式化系统配合工作
 
-## Proposal
+## 提案
 
-Create a generic `Secret(T)` wrapper type:
+创建一个泛型 `Secret(T)` 包装类型：
 
 ```zig
 pub fn Secret(comptime T: type) type {
@@ -46,28 +46,21 @@ pub fn Secret(comptime T: type) type {
             return .{ .value = value };
         }
         
-        /// Intentionally access the secret value
+        /// 有意访问密钥值
         pub fn reveal(self: Self) T {
             return self.value;
         }
         
-        /// Format always outputs "[REDACTED]"
-        pub fn format(
-            self: Self,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
+        /// 格式化始终输出 "[REDACTED]"
+        pub fn format(self: Self, writer: anytype) !void {
             _ = self;
-            _ = fmt;
-            _ = options;
             try writer.writeAll("[REDACTED]");
         }
     };
 }
 ```
 
-### Usage
+### 使用方法
 
 ```zig
 const Credentials = struct {
@@ -80,78 +73,78 @@ const creds = Credentials{
     .passphrase = Secret([]const u8).init("secret123"),
 };
 
-// Safe: prints "[REDACTED]"
-std.log.info("Using key: {}", .{creds.api_key});
+// 安全：输出 "[REDACTED]"
+std.log.info("Using key: {f}", .{creds.api_key});
 
-// Intentional access
+// 有意访问
 const key = creds.api_key.reveal();
 try signRequest(key);
 ```
 
-## Alternatives Considered
+## 备选方案
 
-### Alternative 1: Runtime flag to disable logging
+### 备选方案 1：禁用日志的运行时标志
 
 ```zig
 var DISABLE_SECRET_LOGGING = true;
 ```
 
-**Pros**: Simple
-**Cons**: Still possible to leak if flag is wrong, runtime overhead
+**优点**: 简单
+**缺点**: 如果标志设置错误仍可能泄露，有运行时开销
 
-**Decision**: Rejected - compile-time safety is better
+**决定**: 拒绝 - 编译时安全性更好
 
-### Alternative 2: Custom logging function
+### 备选方案 2：自定义日志函数
 
 ```zig
 fn safeLog(comptime fmt: []const u8, args: anytype) void {
-    // Filter sensitive fields
+    // 过滤敏感字段
 }
 ```
 
-**Pros**: Centralized control
-**Cons**: Easy to bypass, doesn't protect against `std.debug.print`
+**优点**: 集中控制
+**缺点**: 容易绕过，不能防止 `std.debug.print`
 
-**Decision**: Rejected - doesn't solve the root problem
+**决定**: 拒绝 - 不能解决根本问题
 
-### Alternative 3: Encryption at rest
+### 备选方案 3：静态加密
 
-Encrypt secrets in memory, decrypt only when needed.
+在内存中加密密钥，需要时才解密。
 
-**Pros**: Defense in depth
-**Cons**: Complexity, key management, performance overhead
+**优点**: 纵深防御
+**缺点**: 复杂，密钥管理，性能开销
 
-**Decision**: Deferred - good for future enhancement, not MVP
+**决定**: 推迟 - 对未来增强有好处，但不是 MVP
 
-## Decision
+## 决定
 
-**Use compile-time Secret wrapper** because:
+**使用编译时 Secret 包装器**，因为：
 
-1. Zero runtime cost (format is only called during logging)
-2. Type system prevents accidental access
-3. `reveal()` makes intentional access explicit and grep-able
-4. Works with all Zig formatting
+1. 零运行时成本（format 只在日志记录时调用）
+2. 类型系统防止意外访问
+3. `reveal()` 使有意访问显式且可被 grep 搜索
+4. 与所有 Zig 格式化配合工作
 
-## Implementation Notes
+## 实现注意事项
 
-- Secret should be `extern struct` compatible if needed for FFI
-- Consider adding `SecretSlice` for `[]const u8` specifically
-- Add `eql` method for comparing secrets without revealing
+- 如果需要 FFI，Secret 应该与 `extern struct` 兼容
+- 考虑为 `[]const u8` 专门添加 `SecretSlice`
+- 添加 `eql` 方法用于比较密钥而不泄露
 
-## Security Considerations
+## 安全考虑
 
-This is **defense in depth**, not a complete solution:
+这是**纵深防御**，不是完整的解决方案：
 
-- Memory can still be dumped
-- Secrets are still in process memory
-- Side-channel attacks are still possible
+- 内存仍然可以被转储
+- 密钥仍在进程内存中
+- 侧信道攻击仍然可能
 
-For production, consider:
-- Memory-safe secret storage (mlock, guard pages)
-- Hardware security modules (HSM)
-- Short-lived credentials
+对于生产环境，考虑：
+- 内存安全的密钥存储（mlock, guard pages）
+- 硬件安全模块（HSM）
+- 短期凭证
 
-## References
+## 参考资料
 
-- [OWASP Sensitive Data Exposure](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/04-Authentication_Testing/09-Testing_for_Weak_Password_Change_or_Reset_Functionalities)
-- Rust's `secrecy` crate for similar pattern
+- [OWASP 敏感数据暴露](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/04-Authentication_Testing/09-Testing_for_Weak_Password_Change_or_Reset_Functionalities)
+- Rust 的 `secrecy` crate 使用类似模式
