@@ -745,18 +745,30 @@ pub const COLLATERAL_TOKEN_DECIMALS: u8 = 6;
 
 ```
 src/types/
-├── mod.zig           # 模块导出
+├── mod.zig           # ✅ 模块导出
 ├── decimal.zig       # ✅ 已实现
 ├── secret.zig        # ✅ 已实现
-├── address.zig       # ⏳ 待实现
-├── uuid.zig          # ⏳ 待实现
-├── order.zig         # ⏳ 订单类型
-├── book.zig          # ⏳ 订单簿类型
-├── trade.zig         # ⏳ 交易类型
-├── api_creds.zig     # ⏳ API 凭证
-├── params.zig        # ⏳ 查询参数
-├── rfq.zig           # ⏳ RFQ 类型
-└── contracts.zig     # ⏳ 合约配置
+├── address.zig       # ✅ 已实现
+└── uuid.zig          # ✅ 已实现
+
+# 订单相关类型在 clob/types/ 中实现
+src/clob/types/
+├── mod.zig           # ✅ 模块导出
+├── order.zig         # ✅ 订单类型
+├── book.zig          # ✅ 订单簿类型
+├── trade.zig         # ✅ 交易类型
+├── market.zig        # ✅ 市场类型
+├── account.zig       # ✅ 账户类型 (含 API 凭证)
+├── builder.zig       # ✅ Builder 类型
+└── common.zig        # ✅ 通用类型
+
+# RFQ 类型在 rfq/types.zig 中实现
+src/rfq/
+├── mod.zig           # ✅ 模块导出
+├── client.zig        # ✅ RFQ 客户端
+└── types.zig         # ✅ RFQ 类型
+
+# 注: contracts.zig (合约配置) 推迟到 v0.4
 ```
 
 ---
@@ -766,3 +778,4 @@ src/types/
 | 日期 | 变更 |
 |------|------|
 | 2024-12-31 | 初始版本，从官方仓库提取类型定义 |
+| 2024-12-31 | 更新文件结构图，反映 v0.3 完成后的实际状态 |

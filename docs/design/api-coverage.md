@@ -189,7 +189,7 @@
 
 | 端点 | 方法 | Python | TypeScript | Zig ROADMAP | 说明 |
 |------|------|--------|------------|-------------|------|
-| `/v1/heartbeats` | POST | `post_heartbeat()` | - | v0.3 ⏳ | 10秒内不发送会取消所有订单 |
+| `/v1/heartbeats` | POST | `post_heartbeat()` | - | v0.3 ✅ | 10秒内不发送会取消所有订单 |
 
 ---
 
@@ -201,15 +201,15 @@ Builder 是用于做市商程序的独立认证流程。
 
 | 端点 | 方法 | Python | TypeScript | Zig ROADMAP |
 |------|------|--------|------------|-------------|
-| `/auth/builder-api-key` | POST | - | `createBuilderApiKey()` | v0.3 ⏳ |
-| `/auth/builder-api-key` | GET | - | `getBuilderApiKeys()` | v0.3 ⏳ |
-| `/auth/builder-api-key` | DELETE | - | `revokeBuilderApiKey()` | v0.3 ⏳ |
+| `/auth/builder-api-key` | POST | - | `createBuilderApiKey()` | v0.3 ✅ |
+| `/auth/builder-api-key` | GET | - | `getBuilderApiKeys()` | v0.3 ✅ |
+| `/auth/builder-api-key` | DELETE | - | `revokeBuilderApiKey()` | v0.3 ✅ |
 
 ### Builder 交易
 
 | 端点 | 方法 | Python | TypeScript | Zig ROADMAP |
 |------|------|--------|------------|-------------|
-| `/builder/trades` | GET | `get_builder_trades()` | `getBuilderTrades()` | v0.3 ⏳ |
+| `/builder/trades` | GET | `get_builder_trades()` | `getBuilderTrades()` | v0.3 ✅ |
 
 ### Builder 配置
 
@@ -235,16 +235,16 @@ RFQ 是一个独立的子客户端，用于大宗交易的询价系统。
 
 | 端点 | 方法 | Python | TypeScript | Zig ROADMAP |
 |------|------|--------|------------|-------------|
-| `/rfq/request` | POST | `rfq.create_rfq_request()` | `rfq.createRfqRequest()` | v0.3 ⏳ |
-| `/rfq/request` | DELETE | `rfq.cancel_rfq_request()` | `rfq.cancelRfqRequest()` | v0.3 ⏳ |
-| `/rfq/data/requests` | GET | `rfq.get_rfq_requests()` | `rfq.getRfqRequests()` | v0.3 ⏳ |
-| `/rfq/quote` | POST | `rfq.create_rfq_quote()` | `rfq.createRfqQuote()` | v0.3 ⏳ |
-| `/rfq/quote` | DELETE | `rfq.cancel_rfq_quote()` | `rfq.cancelRfqQuote()` | v0.3 ⏳ |
-| `/rfq/data/quotes` | GET | `rfq.get_rfq_quotes()` | `rfq.getRfqQuotes()` | v0.3 ⏳ |
-| `/rfq/data/best-quote` | GET | `rfq.get_rfq_best_quote()` | `rfq.getRfqBestQuote()` | v0.3 ⏳ |
-| `/rfq/request/accept` | POST | `rfq.accept_rfq_quote()` | `rfq.acceptRfqQuote()` | v0.3 ⏳ |
-| `/rfq/quote/approve` | POST | `rfq.approve_rfq_order()` | `rfq.approveRfqOrder()` | v0.3 ⏳ |
-| `/rfq/config` | GET | `rfq.rfq_config()` | `rfq.rfqConfig()` | v0.3 ⏳ |
+| `/rfq/request` | POST | `rfq.create_rfq_request()` | `rfq.createRfqRequest()` | v0.3 ✅ |
+| `/rfq/request` | DELETE | `rfq.cancel_rfq_request()` | `rfq.cancelRfqRequest()` | v0.3 ✅ |
+| `/rfq/data/requests` | GET | `rfq.get_rfq_requests()` | `rfq.getRfqRequests()` | v0.3 ✅ |
+| `/rfq/quote` | POST | `rfq.create_rfq_quote()` | `rfq.createRfqQuote()` | v0.3 ✅ |
+| `/rfq/quote` | DELETE | `rfq.cancel_rfq_quote()` | `rfq.cancelRfqQuote()` | v0.3 ✅ |
+| `/rfq/data/quotes` | GET | `rfq.get_rfq_quotes()` | `rfq.getRfqQuotes()` | v0.3 ✅ |
+| `/rfq/data/best-quote` | GET | `rfq.get_rfq_best_quote()` | `rfq.getRfqBestQuote()` | v0.3 ✅ |
+| `/rfq/request/accept` | POST | `rfq.accept_rfq_quote()` | `rfq.acceptRfqQuote()` | v0.3 ✅ |
+| `/rfq/quote/approve` | POST | `rfq.approve_rfq_order()` | `rfq.approveRfqOrder()` | v0.3 ✅ |
+| `/rfq/config` | GET | `rfq.rfq_config()` | `rfq.getRfqConfig()` | v0.3 ✅ |
 
 ### RFQ 匹配类型
 
