@@ -16,6 +16,7 @@
 ```
 docs/
 ├── README.md             # 本文件
+├── error.md              # 错误类型
 ├── design/
 │   ├── api-coverage.md   # API 功能覆盖分析（完整）
 │   ├── contracts.md      # Polygon 合约配置
@@ -29,6 +30,8 @@ docs/
 │   ├── secret.md         # 对应 src/types/secret.zig
 │   ├── address.md        # 对应 src/types/address.zig
 │   └── uuid.md           # 对应 src/types/uuid.zig
+├── http/                 # 镜像 src/http/
+│   └── README.md         # HTTP 客户端
 ├── crypto/               # 镜像 src/crypto/
 │   ├── README.md         # 模块概述
 │   ├── keccak.md         # Keccak256 哈希
@@ -39,12 +42,14 @@ docs/
 │   ├── wallet.md         # Wallet 类型
 │   └── eip712.md         # EIP-712 签名
 ├── auth/                 # 镜像 src/auth/
+│   ├── README.md         # 模块概述
 │   ├── l1-auth.md        # L1 认证 (EIP-712)
 │   └── l2-auth.md        # L2 认证 (HMAC-SHA256)
 ├── order/                # 镜像 src/order/
 │   ├── README.md         # 模块概述
 │   └── builder.md        # 订单构建器
 └── clob/                 # 镜像 src/clob/
+    ├── README.md         # 模块概述
     └── orders.md         # 订单管理 API
 ```
 

@@ -57,35 +57,35 @@ const book = try client.getOrderBook(token_id);
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `GET /` | `getOk()` | ⏳ |
-| `GET /time` | `getServerTime()` | ⏳ |
+| `GET /` | `getOk()` | ✅ |
+| `GET /time` | `getServerTime()` | ✅ |
 
 #### 市场数据
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `GET /markets` | `getMarkets()` | ⏳ |
-| `GET /simplified-markets` | `getSimplifiedMarkets()` | ⏳ |
+| `GET /markets` | `getMarkets()` | ✅ |
+| `GET /simplified-markets` | `getSimplifiedMarkets()` | ✅ |
 | `GET /sampling-markets` | `getSamplingMarkets()` | ⏳ |
 | `GET /sampling-simplified-markets` | `getSamplingSimplifiedMarkets()` | ⏳ |
-| `GET /markets/{condition_id}` | `getMarket()` | ⏳ |
+| `GET /markets/{condition_id}` | `getMarket()` | ✅ |
 
 #### 价格和订单簿
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `GET /book` | `getOrderBook()` | ⏳ |
+| `GET /book` | `getOrderBook()` | ✅ |
 | `POST /books` | `getOrderBooks()` | ⏳ |
-| `GET /midpoint` | `getMidpoint()` | ⏳ |
+| `GET /midpoint` | `getMidpoint()` | ✅ |
 | `POST /midpoints` | `getMidpoints()` | ⏳ |
-| `GET /price` | `getPrice()` | ⏳ |
+| `GET /price` | `getPrice()` | ✅ |
 | `POST /prices` | `getPrices()` | ⏳ |
-| `GET /spread` | `getSpread()` | ⏳ |
+| `GET /spread` | `getSpread()` | ✅ |
 | `POST /spreads` | `getSpreads()` | ⏳ |
-| `GET /tick-size` | `getTickSize()` | ⏳ |
-| `GET /neg-risk` | `getNegRisk()` | ⏳ |
+| `GET /tick-size` | `getTickSize()` | ✅ |
+| `GET /neg-risk` | `getNegRisk()` | ✅ |
 | `GET /fee-rate` | `getFeeRateBps()` | ⏳ |
-| `GET /last-trade-price` | `getLastTradePrice()` | ⏳ |
+| `GET /last-trade-price` | `getLastTradePrice()` | ✅ |
 | `POST /last-trades-prices` | `getLastTradesPrices()` | ⏳ |
 
 ### 进度
@@ -159,31 +159,31 @@ try client.postOrder(order, .gtc);
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `POST /order` | `postOrder()` | ⏳ |
+| `POST /order` | `postOrder()` | ✅ |
 | `POST /orders` | `postOrders()` | ⏳ |
-| `GET /data/orders` | `getOpenOrders()` | ⏳ |
-| `GET /data/order/{id}` | `getOrder()` | ⏳ |
-| `DELETE /order` | `cancelOrder()` | ⏳ |
-| `DELETE /orders` | `cancelOrders()` | ⏳ |
-| `DELETE /cancel-all` | `cancelAll()` | ⏳ |
-| `DELETE /cancel-market-orders` | `cancelMarketOrders()` | ⏳ |
+| `GET /data/orders` | `getOpenOrders()` | ✅ |
+| `GET /data/order/{id}` | `getOrder()` | ✅ |
+| `DELETE /order` | `cancelOrder()` | ✅ |
+| `DELETE /orders` | `cancelOrders()` | ✅ |
+| `DELETE /cancel-all` | `cancelAll()` | ✅ |
+| `DELETE /cancel-market-orders` | `cancelMarketOrders()` | ✅ |
 
 #### 交易和账户
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `GET /data/trades` | `getTrades()` | ⏳ |
-| `GET /balance-allowance` | `getBalanceAllowance()` | ⏳ |
+| `GET /data/trades` | `getTrades()` | ✅ |
+| `GET /balance-allowance` | `getBalanceAllowance()` | ✅ |
 | `GET /balance-allowance/update` | `updateBalanceAllowance()` | ⏳ |
-| `GET /notifications` | `getNotifications()` | ⏳ |
-| `DELETE /notifications` | `dropNotifications()` | ⏳ |
+| `GET /notifications` | `getNotifications()` | ✅ |
+| `DELETE /notifications` | `dropNotifications()` | ✅ |
 
 ### 订单类型
 
 | 类型 | 描述 | 状态 |
 |------|------|------|
-| 限价单 (GTC) | Good Till Cancelled | ⏳ |
-| 限价单 (GTD) | Good Till Date | ⏳ |
+| 限价单 (GTC) | Good Till Cancelled | ✅ |
+| 限价单 (GTD) | Good Till Date | ✅ |
 | 市价单 (FOK) | Fill Or Kill | ⏳ |
 | 市价单 (FAK) | Fill And Kill | ⏳ |
 
@@ -191,9 +191,9 @@ try client.postOrder(order, .gtc);
 
 | 方法 | 描述 | 状态 |
 |------|------|------|
-| `createOrder()` | 创建限价单 | ⏳ |
+| `createOrder()` | 创建限价单 | ✅ |
 | `createMarketOrder()` | 创建市价单 | ⏳ |
-| `createAndPostOrder()` | 创建并发布限价单 | ⏳ |
+| `createAndPostOrder()` | 创建并发布限价单 | ✅ |
 | `createAndPostMarketOrder()` | 创建并发布市价单 | ⏳ |
 | `calculateMarketPrice()` | 计算市价 | ⏳ |
 
@@ -201,7 +201,7 @@ try client.postOrder(order, .gtc);
 
 | 类型 | 值 | 描述 | 状态 |
 |------|---|------|------|
-| EOA | 0 | MetaMask, 硬件钱包 | ⏳ |
+| EOA | 0 | MetaMask, 硬件钱包 | ✅ |
 | POLY_PROXY | 1 | Email/Magic 钱包 | ⏳ |
 | POLY_GNOSIS_SAFE | 2 | 浏览器钱包代理 | ⏳ |
 
