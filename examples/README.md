@@ -11,6 +11,7 @@
 | `authentication.zig` | L1/L2 认证流程 | 是 |
 | `order_management.zig` | 订单创建、发布和管理 | 是 |
 | `websocket.zig` | WebSocket 实时数据订阅 | 部分 |
+| `btc_hedge_strategy.zig` | BTC 二元期权对冲套利策略 | 是 |
 
 ## 示例说明
 
@@ -56,6 +57,23 @@
 - 消息解析和处理
 - 回调函数配置
 
+### btc_hedge_strategy.zig
+
+完整的 BTC 二元期权对冲套利策略：
+- 针对 "BTC 15分钟内是否上涨" 市场
+- 两步对冲：抄底 YES + 反弹卖 NO
+- 自动检测暴跌和反弹时机
+- 动态仓位管理
+- 利润锁定计算
+
+**策略原理**：
+1. 监控 YES 价格，检测快速下跌
+2. 价格跌到低位时买入 YES
+3. 价格反弹后卖出等量 NO 对冲
+4. YES + NO = 1，锁定无风险利润
+
+**风险提示**：这是真实交易策略，涉及资金风险，仅供教育参考。
+
 ## 运行示例
 
 示例文件是独立的教学文档，主要用于展示 API 用法。它们包含详细的代码说明和注释。
@@ -71,15 +89,19 @@ cat examples/websocket.zig
 需要认证的示例需要设置环境变量：
 
 ```bash
-# 复制环境变量模板
-cp .env.example .env
+# 基础认证配置
+export POLY_PRIVATE_KEY=0x...          # 钱包私钥
+export POLY_API_KEY=your-api-key       # API Key
+export POLY_API_SECRET=your-secret     # API Secret  
+export POLY_API_PASSPHRASE=your-pass   # API Passphrase
 
-# 编辑 .env 填入你的配置
-# POLYGON_WALLET_PRIVATE_KEY=你的私钥
-# POLY_API_KEY=你的 API Key
-# POLY_API_SECRET=你的 API Secret
-# POLY_API_PASSPHRASE=你的 Passphrase
+# BTC 对冲策略额外配置
+export POLY_YES_TOKEN=...              # YES Token ID
+export POLY_NO_TOKEN=...               # NO Token ID
+export POLY_CONDITION_ID=...           # 市场 Condition ID
 ```
+
+Token ID 和 Condition ID 可从 Polymarket 市场页面获取。
 
 ## 注意事项
 

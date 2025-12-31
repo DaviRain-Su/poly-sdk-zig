@@ -443,3 +443,4 @@ try ws.run();
 | 2026-01-01 | v0.6 开始：L1 认证端点 (createApiKey/deriveApiKey/createOrDeriveApiKey)、采样市场端点、Readonly API Key 端点 (356 tests) |
 | 2026-01-01 | v0.6 完成：ContractConfig 类型、CI/CD 配置、示例文件、修复 main.zig (365 tests) |
 | 2026-01-01 | v1.0 准备：WebSocket 示例、examples/README.md 更新、ROADMAP.md 状态同步 |
+| 2026-01-01 | v1.0 增强：BTC 对冲套利策略示例 (btc_hedge_strategy.zig) |
