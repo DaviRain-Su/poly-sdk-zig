@@ -58,6 +58,9 @@ pub const l1 = @import("l1.zig");
 /// L2 认证（HMAC-SHA256）
 pub const l2 = @import("l2.zig");
 
+/// Builder 认证
+pub const builder = @import("builder.zig");
+
 // ============================================================================
 // 便捷类型导出
 // ============================================================================
@@ -101,6 +104,21 @@ pub const L2AuthError = l2.L2AuthError;
 
 // L2 辅助函数
 pub const buildSignatureMessage = l2.buildSignatureMessage;
+
+/// Builder 凭证
+pub const BuilderCreds = builder.BuilderCreds;
+
+/// Builder 认证器
+pub const BuilderAuth = builder.BuilderAuth;
+
+/// Builder 认证 Header
+pub const BuilderPolyHeader = builder.BuilderPolyHeader;
+
+/// Builder 认证请求选项
+pub const BuilderAuthRequestOptions = builder.BuilderAuthRequestOptions;
+
+/// Builder 认证错误
+pub const BuilderAuthError = builder.BuilderAuthError;
 
 // ============================================================================
 // 测试
@@ -171,9 +189,35 @@ test "auth module constants" {
     try std.testing.expectEqualStrings("1", CLOB_AUTH_DOMAIN_VERSION);
 }
 
+test "auth module BuilderAuth" {
+    const allocator = std.testing.allocator;
+
+    var builder_creds = try BuilderCreds.init(
+        allocator,
+        "builder-key",
+        "builder-secret",
+        "builder-pass",
+    );
+    defer builder_creds.deinit();
+
+    const builder_auth = BuilderAuth.init(&builder_creds);
+    try std.testing.expectEqualStrings("builder-key", builder_auth.getApiKey());
+
+    // 测试生成 Header
+    const header = try builder_auth.generateHeaderWithTimestamp(.{
+        .method = "GET",
+        .path = "/builder/trades",
+        .body = null,
+    }, 1704067200);
+
+    try std.testing.expectEqualStrings("1704067200", header.getTimestamp());
+    try std.testing.expectEqual(@as(usize, 44), header.getSignature().len);
+}
+
 test "all submodules" {
     _ = @import("api_creds.zig");
     _ = @import("headers.zig");
     _ = @import("l1.zig");
     _ = @import("l2.zig");
+    _ = @import("builder.zig");
 }

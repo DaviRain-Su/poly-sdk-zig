@@ -230,10 +230,10 @@ const quotes = try client.rfq.getRfqQuotes(.{ .request_id = request.request_id }
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `POST /auth/builder-api-key` | `createBuilderApiKey()` | ⏳ |
-| `GET /auth/builder-api-key` | `getBuilderApiKeys()` | ⏳ |
-| `DELETE /auth/builder-api-key` | `revokeBuilderApiKey()` | ⏳ |
-| `GET /builder/trades` | `getBuilderTrades()` | ⏳ |
+| `POST /auth/builder-api-key` | `createBuilderApiKey()` | ✅ |
+| `GET /auth/builder-api-key` | `getBuilderApiKeys()` | ✅ |
+| `DELETE /auth/builder-api-key` | `revokeBuilderApiKey()` | ✅ |
+| `GET /builder/trades` | `getBuilderTrades()` | ✅ |
 
 ### Readonly API Key
 
@@ -375,3 +375,4 @@ try ws.subscribeTrades(token_id, onTrade);
 | 2024-12-31 | v0.2-order-builder 完成：OrderBuilder、限价单创建、金额计算、EIP-712 签名 |
 | 2024-12-31 | v0.2-orders 完成：订单发布/查询/取消、交易历史、余额查询、L2 认证集成 |
 | 2024-12-31 | v0.3 开始：市价单(FOK/FAK)、批量订单(postOrders)、Heartbeat 端点 |
+| 2024-12-31 | v0.3 Builder：Builder 认证、API Key 管理、Builder 交易历史 (20 tests) |

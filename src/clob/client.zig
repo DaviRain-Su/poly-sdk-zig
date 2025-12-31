@@ -29,6 +29,9 @@ const root = @import("../root.zig");
 const L2Auth = root.auth.L2Auth;
 const ApiCreds = root.auth.ApiCreds;
 const L2PolyHeader = root.auth.L2PolyHeader;
+const BuilderAuth = root.auth.BuilderAuth;
+const BuilderCreds = root.auth.BuilderCreds;
+const BuilderPolyHeader = root.auth.BuilderPolyHeader;
 
 // Order imports
 const SignedOrder = root.order.SignedOrder;
@@ -116,6 +119,10 @@ pub const Endpoints = struct {
 
     // Heartbeat (注意使用 /v1/ 前缀)
     pub const HEARTBEAT = "/v1/heartbeats";
+
+    // Builder endpoints
+    pub const BUILDER_API_KEY = "/auth/builder-api-key";
+    pub const BUILDER_TRADES = "/builder/trades";
 };
 
 /// Default base URLs
@@ -164,6 +171,9 @@ pub const ClobClient = struct {
     wallet: ?*const Wallet = null,
     api_creds: ?*const ApiCreds = null,
 
+    // Builder authentication (optional)
+    builder_creds: ?*const BuilderCreds = null,
+
     /// Initialize CLOB client (public API only)
     pub fn init(allocator: std.mem.Allocator, config: Config) ClobClient {
         return ClobClient{
@@ -189,6 +199,24 @@ pub const ClobClient = struct {
         };
     }
 
+    /// Initialize authenticated CLOB client with Builder credentials
+    pub fn initWithBuilder(
+        allocator: std.mem.Allocator,
+        config: Config,
+        wallet: *const Wallet,
+        creds: *const ApiCreds,
+        builder_creds: *const BuilderCreds,
+    ) ClobClient {
+        return ClobClient{
+            .allocator = allocator,
+            .config = config,
+            .http_client = .{ .allocator = allocator },
+            .wallet = wallet,
+            .api_creds = creds,
+            .builder_creds = builder_creds,
+        };
+    }
+
     /// Deinitialize client
     pub fn deinit(self: *ClobClient) void {
         self.http_client.deinit();
@@ -197,6 +225,11 @@ pub const ClobClient = struct {
     /// Check if client has authentication configured
     pub fn hasAuth(self: *const ClobClient) bool {
         return self.api_creds != null;
+    }
+
+    /// Check if client has Builder authentication configured
+    pub fn hasBuilderAuth(self: *const ClobClient) bool {
+        return self.builder_creds != null;
     }
 
     /// Build full URL from path
@@ -366,6 +399,179 @@ pub const ClobClient = struct {
         // Generate L2 auth header
         const l2 = L2Auth.init(creds);
         const auth_header = l2.generateHeader(.{
+            .method = "DELETE",
+            .path = path,
+            .body = body,
+        }) catch return Error.Unauthorized;
+
+        const poly_headers = auth_header.toHttpHeaders();
+
+        const uri = std.Uri.parse(url) catch return Error.BadRequest;
+
+        var req = self.http_client.request(.DELETE, uri, .{
+            .extra_headers = &[_]std.http.Header{
+                .{ .name = "Accept", .value = "application/json" },
+                .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
+                .{ .name = "Content-Type", .value = "application/json" },
+                poly_headers[0],
+                poly_headers[1],
+                poly_headers[2],
+                poly_headers[3],
+            },
+        }) catch |err| {
+            return switch (err) {
+                error.ConnectionRefused => Error.ConnectionRefused,
+                error.ConnectionResetByPeer => Error.ConnectionReset,
+                error.ConnectionTimedOut => Error.Timeout,
+                error.NetworkUnreachable => Error.ConnectionFailed,
+                error.UnknownHostName => Error.DnsResolutionFailed,
+                else => Error.ConnectionFailed,
+            };
+        };
+        defer req.deinit();
+
+        // Send body if provided
+        if (body) |b| {
+            req.transfer_encoding = .{ .content_length = b.len };
+            var body_writer = req.sendBodyUnflushed(&.{}) catch return Error.ConnectionFailed;
+            body_writer.writer.writeAll(b) catch return Error.ConnectionFailed;
+            body_writer.end() catch return Error.ConnectionFailed;
+            if (req.connection) |conn| {
+                conn.flush() catch return Error.ConnectionFailed;
+            }
+        } else {
+            req.sendBodiless() catch return Error.ConnectionFailed;
+        }
+
+        var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
+
+        if (errorFromStatus(response.head.status)) |err| {
+            return err;
+        }
+
+        return readResponseBody(self.allocator, &response) catch return Error.ConnectionFailed;
+    }
+
+    /// Perform Builder authenticated GET request
+    fn doBuilderGet(self: *ClobClient, path: []const u8) ![]u8 {
+        const builder_creds = self.builder_creds orelse return Error.Unauthorized;
+
+        const url = try self.buildUrl(path);
+        defer self.allocator.free(url);
+
+        // Generate Builder auth header
+        const builder_auth = BuilderAuth.init(builder_creds);
+        const auth_header = builder_auth.generateHeader(.{
+            .method = "GET",
+            .path = path,
+            .body = null,
+        }) catch return Error.Unauthorized;
+
+        const poly_headers = auth_header.toHttpHeaders();
+
+        const uri = std.Uri.parse(url) catch return Error.BadRequest;
+
+        var req = self.http_client.request(.GET, uri, .{
+            .extra_headers = &[_]std.http.Header{
+                .{ .name = "Accept", .value = "application/json" },
+                .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
+                .{ .name = "Content-Type", .value = "application/json" },
+                poly_headers[0],
+                poly_headers[1],
+                poly_headers[2],
+                poly_headers[3],
+            },
+        }) catch |err| {
+            return switch (err) {
+                error.ConnectionRefused => Error.ConnectionRefused,
+                error.ConnectionResetByPeer => Error.ConnectionReset,
+                error.ConnectionTimedOut => Error.Timeout,
+                error.NetworkUnreachable => Error.ConnectionFailed,
+                error.UnknownHostName => Error.DnsResolutionFailed,
+                else => Error.ConnectionFailed,
+            };
+        };
+        defer req.deinit();
+
+        req.sendBodiless() catch return Error.ConnectionFailed;
+        var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
+
+        if (errorFromStatus(response.head.status)) |err| {
+            return err;
+        }
+
+        return readResponseBody(self.allocator, &response) catch return Error.ConnectionFailed;
+    }
+
+    /// Perform Builder authenticated POST request
+    fn doBuilderPost(self: *ClobClient, path: []const u8, body: []const u8) ![]u8 {
+        const builder_creds = self.builder_creds orelse return Error.Unauthorized;
+
+        const url = try self.buildUrl(path);
+        defer self.allocator.free(url);
+
+        // Generate Builder auth header
+        const builder_auth = BuilderAuth.init(builder_creds);
+        const auth_header = builder_auth.generateHeader(.{
+            .method = "POST",
+            .path = path,
+            .body = body,
+        }) catch return Error.Unauthorized;
+
+        const poly_headers = auth_header.toHttpHeaders();
+
+        const uri = std.Uri.parse(url) catch return Error.BadRequest;
+
+        var req = self.http_client.request(.POST, uri, .{
+            .extra_headers = &[_]std.http.Header{
+                .{ .name = "Accept", .value = "application/json" },
+                .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
+                .{ .name = "Content-Type", .value = "application/json" },
+                poly_headers[0],
+                poly_headers[1],
+                poly_headers[2],
+                poly_headers[3],
+            },
+        }) catch |err| {
+            return switch (err) {
+                error.ConnectionRefused => Error.ConnectionRefused,
+                error.ConnectionResetByPeer => Error.ConnectionReset,
+                error.ConnectionTimedOut => Error.Timeout,
+                error.NetworkUnreachable => Error.ConnectionFailed,
+                error.UnknownHostName => Error.DnsResolutionFailed,
+                else => Error.ConnectionFailed,
+            };
+        };
+        defer req.deinit();
+
+        // Send body
+        req.transfer_encoding = .{ .content_length = body.len };
+        var body_writer = req.sendBodyUnflushed(&.{}) catch return Error.ConnectionFailed;
+        body_writer.writer.writeAll(body) catch return Error.ConnectionFailed;
+        body_writer.end() catch return Error.ConnectionFailed;
+        if (req.connection) |conn| {
+            conn.flush() catch return Error.ConnectionFailed;
+        }
+
+        var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
+
+        if (errorFromStatus(response.head.status)) |err| {
+            return err;
+        }
+
+        return readResponseBody(self.allocator, &response) catch return Error.ConnectionFailed;
+    }
+
+    /// Perform Builder authenticated DELETE request
+    fn doBuilderDelete(self: *ClobClient, path: []const u8, body: ?[]const u8) ![]u8 {
+        const builder_creds = self.builder_creds orelse return Error.Unauthorized;
+
+        const url = try self.buildUrl(path);
+        defer self.allocator.free(url);
+
+        // Generate Builder auth header
+        const builder_auth = BuilderAuth.init(builder_creds);
+        const auth_header = builder_auth.generateHeader(.{
             .method = "DELETE",
             .path = path,
             .body = body,
@@ -1001,6 +1207,139 @@ pub const ClobClient = struct {
     }
 
     // =========================================================================
+    // Builder Authenticated Endpoints
+    // =========================================================================
+
+    /// Create a Builder API Key - POST /auth/builder-api-key
+    ///
+    /// Requires L2 authentication (NOT Builder authentication).
+    /// Returns a new Builder API Key that can be used for Builder-specific endpoints.
+    pub fn createBuilderApiKey(self: *ClobClient) !types.BuilderApiKeyResponse {
+        const response_body = try self.doAuthPost(Endpoints.BUILDER_API_KEY, "{}");
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(types.BuilderApiKeyResponse, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        // Copy strings to return owned data
+        return types.BuilderApiKeyResponse{
+            .api_key = parsed.value.api_key,
+            .api_secret = parsed.value.api_secret,
+            .passphrase = parsed.value.passphrase,
+            .created_at = parsed.value.created_at,
+        };
+    }
+
+    /// Get all Builder API Keys - GET /auth/builder-api-key
+    ///
+    /// Requires L2 authentication.
+    /// Returns a list of all Builder API Keys associated with the account.
+    pub fn getBuilderApiKeys(self: *ClobClient) !std.json.Parsed([]types.BuilderApiKeyInfo) {
+        const response_body = try self.doAuthGet(Endpoints.BUILDER_API_KEY);
+        defer self.allocator.free(response_body);
+
+        return std.json.parseFromSlice([]types.BuilderApiKeyInfo, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    /// Revoke a Builder API Key - DELETE /auth/builder-api-key
+    ///
+    /// Requires L2 authentication.
+    /// Revokes the specified Builder API Key.
+    pub fn revokeBuilderApiKey(self: *ClobClient, api_key: []const u8) !types.RevokeBuilderApiKeyResponse {
+        const request_body = .{ .apiKey = api_key };
+
+        const json_body = std.json.stringifyAlloc(self.allocator, request_body, .{}) catch return Error.OutOfMemory;
+        defer self.allocator.free(json_body);
+
+        const response_body = try self.doAuthDelete(Endpoints.BUILDER_API_KEY, json_body);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(types.RevokeBuilderApiKeyResponse, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+        }) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    /// Get Builder trades - GET /builder/trades
+    ///
+    /// Requires Builder authentication.
+    /// Returns the trade history for the Builder account.
+    pub fn getBuilderTrades(self: *ClobClient, params: types.BuilderTradesParams) !std.json.Parsed(types.PaginatedBuilderTrades) {
+        var path_buf: [512]u8 = undefined;
+        var path_len: usize = 0;
+
+        const base = Endpoints.BUILDER_TRADES;
+        @memcpy(path_buf[0..base.len], base);
+        path_len = base.len;
+
+        var has_params = false;
+
+        if (params.market) |market| {
+            path_buf[path_len] = if (has_params) '&' else '?';
+            path_len += 1;
+            const param = std.fmt.bufPrint(path_buf[path_len..], "market={s}", .{market}) catch return Error.BadRequest;
+            path_len += param.len;
+            has_params = true;
+        }
+
+        if (params.asset_id) |asset_id| {
+            path_buf[path_len] = if (has_params) '&' else '?';
+            path_len += 1;
+            const param = std.fmt.bufPrint(path_buf[path_len..], "asset_id={s}", .{asset_id}) catch return Error.BadRequest;
+            path_len += param.len;
+            has_params = true;
+        }
+
+        if (params.before) |before| {
+            path_buf[path_len] = if (has_params) '&' else '?';
+            path_len += 1;
+            const param = std.fmt.bufPrint(path_buf[path_len..], "before={d}", .{before}) catch return Error.BadRequest;
+            path_len += param.len;
+            has_params = true;
+        }
+
+        if (params.after) |after| {
+            path_buf[path_len] = if (has_params) '&' else '?';
+            path_len += 1;
+            const param = std.fmt.bufPrint(path_buf[path_len..], "after={d}", .{after}) catch return Error.BadRequest;
+            path_len += param.len;
+            has_params = true;
+        }
+
+        if (params.limit) |limit| {
+            path_buf[path_len] = if (has_params) '&' else '?';
+            path_len += 1;
+            const param = std.fmt.bufPrint(path_buf[path_len..], "limit={d}", .{limit}) catch return Error.BadRequest;
+            path_len += param.len;
+            has_params = true;
+        }
+
+        if (params.next_cursor) |cursor| {
+            path_buf[path_len] = if (has_params) '&' else '?';
+            path_len += 1;
+            const param = std.fmt.bufPrint(path_buf[path_len..], "next_cursor={s}", .{cursor}) catch return Error.BadRequest;
+            path_len += param.len;
+        }
+
+        const path = path_buf[0..path_len];
+        const response_body = try self.doBuilderGet(path);
+        defer self.allocator.free(response_body);
+
+        return std.json.parseFromSlice(types.PaginatedBuilderTrades, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    // =========================================================================
     // Convenience Methods
     // =========================================================================
 
@@ -1137,5 +1476,26 @@ test "ClobClient unauthenticated access to L2 endpoints" {
 
     // Should return Unauthorized for L2 endpoints without auth
     const result = client.cancelAll();
+    try std.testing.expectError(Error.Unauthorized, result);
+}
+
+test "ClobClient Builder endpoints constants" {
+    try std.testing.expectEqualStrings("/auth/builder-api-key", Endpoints.BUILDER_API_KEY);
+    try std.testing.expectEqualStrings("/builder/trades", Endpoints.BUILDER_TRADES);
+}
+
+test "ClobClient.hasBuilderAuth" {
+    var client = ClobClient.init(std.testing.allocator, .{});
+    defer client.deinit();
+
+    try std.testing.expect(!client.hasBuilderAuth());
+}
+
+test "ClobClient unauthenticated access to Builder endpoints" {
+    var client = ClobClient.init(std.testing.allocator, .{});
+    defer client.deinit();
+
+    // Should return Unauthorized for Builder endpoints without auth
+    const result = client.getBuilderTrades(.{});
     try std.testing.expectError(Error.Unauthorized, result);
 }

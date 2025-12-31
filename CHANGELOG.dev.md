@@ -6,6 +6,93 @@
 
 ## 会话记录
 
+### Session 2024-12-31-014
+
+**日期**: 2024-12-31  
+**时长**: ~45 分钟  
+**目标**: 实现 v0.3-builder - Builder API Key 管理
+
+#### 完成的工作
+
+##### 1. Builder 类型定义 (`src/clob/types/builder.zig`)
+
+- `BuilderApiKeyResponse` - API Key 创建响应
+- `BuilderApiKeyInfo` - API Key 信息
+- `BuilderTradesParams` - 交易查询参数
+- `BuilderTrade` - 交易记录
+- `PaginatedBuilderTrades` - 分页交易响应
+- `RevokeBuilderApiKeyRequest/Response` - 撤销请求/响应
+- 5 个测试
+
+##### 2. Builder 认证模块 (`src/auth/builder.zig`)
+
+- `BuilderCreds` - Builder 凭证（Secret 保护敏感数据）
+- `BuilderPolyHeader` - Builder Header 类型
+- `BuilderAuth` - Builder 认证器
+- HMAC-SHA256 签名生成
+- 10 个测试
+
+##### 3. ClobClient Builder 端点 (`src/clob/client.zig`)
+
+**新增初始化方法**:
+- `initWithBuilder()` - 初始化带 Builder 凭证的客户端
+- `hasBuilderAuth()` - 检查 Builder 认证状态
+
+**新增 HTTP 方法**:
+- `doBuilderGet()` - Builder 认证 GET 请求
+- `doBuilderPost()` - Builder 认证 POST 请求
+- `doBuilderDelete()` - Builder 认证 DELETE 请求
+
+**新增端点**:
+- `createBuilderApiKey()` - POST /auth/builder-api-key
+- `getBuilderApiKeys()` - GET /auth/builder-api-key
+- `revokeBuilderApiKey()` - DELETE /auth/builder-api-key
+- `getBuilderTrades()` - GET /builder/trades
+
+##### 4. 模块导出更新
+
+- `auth/mod.zig` - 添加 Builder 导出 (BuilderCreds, BuilderAuth, BuilderPolyHeader 等)
+- `clob/types/mod.zig` - 添加 Builder 类型导出
+
+#### 测试结果
+
+```bash
+$ zig test src/root.zig
+All 283 tests passed.
+```
+
+| 模块 | 新增测试 |
+|------|----------|
+| clob/types/builder.zig | 5 |
+| auth/builder.zig | 10 |
+| auth/mod.zig | 1 |
+| clob/client.zig | 4 |
+| **v0.3-builder 新增总计** | **20** |
+
+#### v0.3-builder 完成！✅
+
+所有任务已完成：
+- [x] Builder 类型定义
+- [x] Builder 认证器（HMAC-SHA256）
+- [x] Builder Header 生成
+- [x] Builder API Key 管理端点
+- [x] Builder 交易历史查询
+- [x] ClobClient 集成
+
+#### v0.3 进度
+
+- [x] 市价单支持 (FOK/FAK) - 10 tests
+- [x] 批量订单 (postOrders) - 0 tests (方法实现)
+- [x] Heartbeat 端点 - 0 tests (方法实现)
+- [x] Builder API Key 管理 - 20 tests
+- [ ] RFQ 端点
+
+#### 下一步
+
+- [ ] 实现 RFQ 子客户端 (v0.3-rfq)
+
+---
+
 ### Session 2024-12-31-013
 
 **日期**: 2024-12-31  

@@ -8,6 +8,7 @@ pub const book = @import("book.zig");
 pub const order = @import("order.zig");
 pub const trade = @import("trade.zig");
 pub const account = @import("account.zig");
+pub const builder_types = @import("builder.zig");
 
 // Re-export commonly used types - enums
 pub const OrderType = enums.OrderType;
@@ -68,6 +69,15 @@ pub const DropNotificationsRequest = account.DropNotificationsRequest;
 pub const DropNotificationsResponse = account.DropNotificationsResponse;
 pub const HeartbeatResponse = account.HeartbeatResponse;
 
+// Re-export builder types
+pub const BuilderApiKeyResponse = builder_types.BuilderApiKeyResponse;
+pub const BuilderApiKeyInfo = builder_types.BuilderApiKeyInfo;
+pub const BuilderTradesParams = builder_types.BuilderTradesParams;
+pub const BuilderTrade = builder_types.BuilderTrade;
+pub const PaginatedBuilderTrades = builder_types.PaginatedBuilderTrades;
+pub const RevokeBuilderApiKeyRequest = builder_types.RevokeBuilderApiKeyRequest;
+pub const RevokeBuilderApiKeyResponse = builder_types.RevokeBuilderApiKeyResponse;
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -79,6 +89,7 @@ test "all type modules" {
     _ = order;
     _ = trade;
     _ = account;
+    _ = builder_types;
 }
 
 test "type exports" {
@@ -103,4 +114,12 @@ test "account type exports" {
     _ = BalanceAllowanceResponse{};
     _ = ApiKeyInfo{ .apiKey = "key" };
     _ = Notification{ .id = "n1" };
+}
+
+test "builder type exports" {
+    _ = BuilderApiKeyResponse{ .api_key = "key" };
+    _ = BuilderApiKeyInfo{ .api_key = "key" };
+    _ = BuilderTradesParams{};
+    _ = BuilderTrade{ .id = "trade1" };
+    _ = RevokeBuilderApiKeyResponse{ .success = true };
 }
