@@ -173,6 +173,80 @@ src/                          docs/
 | 修改函数签名 | 对应模块的 `.md` 文件 |
 | 修改行为/逻辑 | 对应模块的 `.md` 文件 |
 | 新增错误类型 | `docs/error.md` (如存在) |
+| Story 完成 | `ROADMAP.md` 对应任务标记 ✅ |
+| 版本完成 | `ROADMAP.md` 当前状态、API 覆盖统计 |
+
+#### ROADMAP.md 更新规范（强制）
+
+**ROADMAP.md 是项目的唯一真相来源**，必须始终保持最新状态。
+
+##### 必须更新 ROADMAP.md 的场景
+
+| 场景 | 更新内容 |
+|------|----------|
+| Story 开始 | 对应 Story 状态改为 🔨 进行中 |
+| Story 完成 | 对应 Story 状态改为 ✅ 已完成 |
+| 版本完成 | 当前状态部分更新版本号和阶段状态 |
+| 新增端点实现 | 对应端点状态从 ⏳ 改为 ✅ |
+| API 覆盖变化 | 更新 "API 覆盖统计" 表格 |
+| 新增 Story | 添加到对应版本的 Stories 表格 |
+| 变更日志 | 在 "变更日志" 部分添加记录 |
+
+##### ROADMAP.md 更新检查清单
+
+每次 Session 完成后必须检查：
+
+```markdown
+# ROADMAP.md 更新检查
+
+- [ ] 当前状态部分
+  - [ ] 版本号是否正确？
+  - [ ] 阶段状态是否正确？（⏳/🔨/✅）
+
+- [ ] Stories 表格
+  - [ ] 完成的 Story 是否标记为 ✅？
+  - [ ] 进行中的 Story 是否标记为 🔨？
+
+- [ ] 端点状态
+  - [ ] 实现的端点是否标记为 ✅？
+  - [ ] 未实现的端点是否保持 ⏳？
+
+- [ ] API 覆盖统计
+  - [ ] 各版本状态是否更新？
+
+- [ ] 变更日志
+  - [ ] 是否添加了今天的变更记录？
+```
+
+##### 示例：版本完成时的 ROADMAP.md 更新
+
+```markdown
+# 更新前
+## 当前状态
+**版本**: v0.1.0 (核心基础)  
+**阶段**: v0.2 - 🔨 进行中
+
+# 更新后
+## 当前状态
+**版本**: v0.2.0 (认证与订单)  
+**阶段**: v0.2 - ✅ 已完成
+```
+
+```markdown
+# 更新 API 覆盖统计
+| 版本 | 功能 | 端点数量 | 状态 |
+|------|------|----------|------|
+| v0.1 | 公共 API (L0) | ~20 | ✅ 完成 |  # 从 🔨 改为 ✅
+| v0.2 | 认证与订单 (L1/L2) | ~25 | ✅ 完成 |  # 从 ⏳ 改为 ✅
+```
+
+```markdown
+# 添加变更日志
+## 变更日志
+| 日期 | 变更 |
+|------|------|
+| 2024-12-31 | v0.2 完成：加密、签名、认证、订单构建、CLOB 客户端 |
+```
 
 #### 文档内容要求
 
@@ -245,6 +319,7 @@ pub fn functionName(args) ReturnType
 
 ## 收尾阶段
 - [ ] CHANGELOG.dev.md 已更新？
+- [ ] ROADMAP.md 已更新？（Story 状态、版本状态、变更日志）
 - [ ] README.md 需要更新吗？
 - [ ] docs/README.md 导航正确？
 - [ ] 新模块是否已添加到 docs/README.md 的目录中？
@@ -429,32 +504,50 @@ if (!result.found_existing) {
 }
 ```
 
-### HTTP Client（fetch API）
+### HTTP Client（request/response API - Zig 0.15+）
+
+**注意**: Zig 0.15 完全重构了 HTTP Client API，移除了 `fetch()` 方法。
 
 ```zig
 var client: std.http.Client = .{ .allocator = allocator };
 defer client.deinit();
 
-// 简单 GET 请求
-const result = try client.fetch(.{
-    .location = .{ .url = "https://example.com/api" },
-});
+// 解析 URI
+const uri = std.Uri.parse(url) catch return error.BadRequest;
 
-// 带响应体的请求
-var response_buffer = try std.ArrayList(u8).initCapacity(allocator, 4096);
-defer response_buffer.deinit();
+// 创建请求
+var req = client.request(.GET, uri, .{
+    .extra_headers = &.{
+        .{ .name = "Accept", .value = "application/json" },
+        .{ .name = "User-Agent", .value = "my-app/1.0" },
+    },
+}) catch return error.ConnectionFailed;
+defer req.deinit();
 
-const result2 = try client.fetch(.{
-    .location = .{ .url = url },
-    .method = .POST,
-    .payload = body,
-    .extra_headers = &.{ .{ .name = "Content-Type", .value = "application/json" } },
-    .response_writer = response_buffer.writer(),
-});
+// 发送 GET 请求（无 body）
+req.sendBodiless() catch return error.ConnectionFailed;
 
-if (result2.status == .ok) {
-    // 使用 response_buffer.items
+// 或发送 POST 请求（带 body）
+// req.transfer_encoding = .{ .content_length = body.len };
+// var body_writer = req.sendBodyUnflushed(&.{}) catch return error.ConnectionFailed;
+// body_writer.writer.writeAll(body) catch return error.ConnectionFailed;
+// body_writer.end() catch return error.ConnectionFailed;
+// if (req.connection) |conn| {
+//     conn.flush() catch return error.ConnectionFailed;
+// }
+
+// 接收响应头
+var response = req.receiveHead(&.{}) catch return error.ConnectionFailed;
+
+// 检查状态码
+if (response.head.status != .ok) {
+    return error.HttpError;
 }
+
+// 读取响应体
+var reader = response.reader(&.{});
+const body = reader.allocRemaining(allocator, std.Io.Limit.limited(10 * 1024 * 1024)) catch return error.ReadFailed;
+defer allocator.free(body);
 ```
 
 ### std.json
@@ -625,7 +718,9 @@ std.log.debug("Order ID: {s}", .{order_id});
 - [ ] `ArrayList` 使用 `initCapacity` 并向变更方法传入 `allocator`
 - [ ] `toOwnedSlice` 传入 `allocator` 参数
 - [ ] 区分 Managed（`StringHashMap`）和 Unmanaged（`StringHashMapUnmanaged`）
-- [ ] HTTP 请求使用 Zig 0.15 的 `fetch` API
+- [ ] HTTP 请求使用 Zig 0.15 的 `request/response` API（非 fetch）
+- [ ] 自定义 format 函数使用 `{f}` 格式说明符
+- [ ] @typeInfo 枚举使用小写（如 `.slice` 而非 `.Slice`）
 
 ### 内存安全
 - [ ] 所有分配都有对应的 `defer`/`errdefer`
@@ -643,6 +738,240 @@ std.log.debug("Order ID: {s}", .{order_id});
 - [ ] 所有文档使用中文编写
 - [ ] Story 文件包含 Session ID 和 Session Log
 - [ ] 文档结构镜像代码结构
+
+---
+
+## Zig 版本兼容性问题记录
+
+本节记录从旧版本 Zig 迁移到 **Zig 0.15** 时遇到的编译问题和解决方案。
+
+### 1. ArrayList API 变更
+
+**问题**: Zig 0.15 中 `ArrayList` 的修改方法需要显式传入 `allocator`。
+
+```zig
+// ❌ 旧版本 (Zig 0.14 及更早)
+var list = std.ArrayList(u8).init(allocator);
+try list.append(item);
+const slice = list.toOwnedSlice();
+
+// ✅ Zig 0.15+
+var list = try std.ArrayList(u8).initCapacity(allocator, 16);
+try list.append(allocator, item);
+const slice = try list.toOwnedSlice(allocator);
+```
+
+**影响的方法**:
+- `append(allocator, item)` - 添加元素
+- `appendSlice(allocator, items)` - 添加多个元素
+- `addOne(allocator)` - 获取新元素指针
+- `ensureTotalCapacity(allocator, n)` - 确保容量
+- `toOwnedSlice(allocator)` - 转换为拥有的切片
+- `insertSlice(allocator, index, items)` - 插入元素
+
+### 2. HTTP Client API 变更
+
+**问题**: Zig 0.15 中 `std.http.Client` 的 API 完全重构，不再使用 `fetch` 模式。
+
+```zig
+// ❌ 旧版本 (fetch 模式)
+const result = try client.fetch(.{
+    .location = .{ .url = url },
+    .method = .POST,
+    .payload = body,
+    .response_storage = .{ .dynamic = &response_buffer },
+});
+
+// ✅ Zig 0.15+ (request/response 模式)
+var req = client.request(.GET, uri, .{
+    .extra_headers = &headers,
+}) catch |err| return mapError(err);
+defer req.deinit();
+
+// 发送请求
+req.sendBodiless() catch return Error.ConnectionFailed;
+
+// 或发送带 body 的请求
+req.transfer_encoding = .{ .content_length = body.len };
+var body_writer = req.sendBodyUnflushed(&.{}) catch return Error.ConnectionFailed;
+body_writer.writer.writeAll(body) catch return Error.ConnectionFailed;
+body_writer.end() catch return Error.ConnectionFailed;
+if (req.connection) |conn| {
+    conn.flush() catch return Error.ConnectionFailed;
+}
+
+// 接收响应
+var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
+
+// 读取响应体
+var reader = response.reader(&.{});
+const body = reader.allocRemaining(allocator, std.Io.Limit.limited(10 * 1024 * 1024)) catch return Error.ReadFailed;
+```
+
+**关键变更**:
+- `fetch()` 方法已移除
+- 使用 `request()` 创建请求对象
+- 使用 `sendBodiless()` 或 `sendBodyUnflushed()` 发送请求
+- 使用 `receiveHead()` 接收响应头
+- 使用 `response.reader()` 读取响应体
+- 使用 `std.Io.Limit.limited()` 设置读取限制
+
+### 3. 自定义 format 函数签名变更
+
+**问题**: Zig 0.15 中使用 `{f}` 格式化时，format 函数签名变化。
+
+```zig
+// ❌ 旧版本
+pub fn format(
+    self: Self,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = fmt;
+    _ = options;
+    try writer.writeAll("[REDACTED]");
+}
+
+// 使用: std.fmt.bufPrint(&buf, "{}", .{secret});
+
+// ✅ Zig 0.15+ (使用 {f} 格式)
+pub fn format(self: Self, writer: anytype) !void {
+    _ = self;
+    try writer.writeAll("[REDACTED]");
+}
+
+// 使用: std.fmt.bufPrint(&buf, "{f}", .{secret});
+```
+
+**注意**: `{f}` 是 Zig 0.15 中调用自定义 format 方法的格式说明符。
+
+### 4. 类型信息枚举大小写变更
+
+**问题**: `@typeInfo` 返回的枚举值从大写改为小写。
+
+```zig
+// ❌ 旧版本
+if (@typeInfo(T) == .Slice) { ... }
+if (info.pointer.size == .Slice) { ... }
+
+// ✅ Zig 0.15+
+if (@typeInfo(T) == .slice) { ... }
+if (info.pointer.size == .slice) { ... }
+```
+
+**影响的枚举**:
+- `.Slice` → `.slice`
+- `.Pointer` → `.pointer`
+- `.Struct` → `.@"struct"`
+- `.Enum` → `.@"enum"`
+- `.Union` → `.@"union"`
+- `.Array` → `.array`
+- `.Optional` → `.optional`
+
+### 5. Decimal.compare() 返回值类型
+
+**问题**: 自定义 `compare()` 函数返回值应该是 `i2`，不是枚举。
+
+```zig
+// ❌ 错误 - 返回枚举
+pub fn compare(self: Decimal, other: Decimal) std.math.Order {
+    if (self.mantissa < other.mantissa) return .lt;
+    if (self.mantissa > other.mantissa) return .gt;
+    return .eq;
+}
+
+// ✅ 正确 - 返回 i2 (-1, 0, 1)
+pub fn compare(self: Decimal, other: Decimal) i2 {
+    if (self_adjusted < other_adjusted) return -1;
+    if (self_adjusted > other_adjusted) return 1;
+    return 0;
+}
+```
+
+### 6. std.Uri.parse 错误处理
+
+**问题**: `std.Uri.parse` 在 Zig 0.15 中可能抛出不同的错误。
+
+```zig
+// ✅ 正确处理
+const uri = std.Uri.parse(url) catch return Error.BadRequest;
+```
+
+### 7. 模块导入路径
+
+**问题**: 跨模块导入时路径处理。
+
+```zig
+// 从 src/clob/client.zig 导入 root.zig
+const root = @import("../root.zig");
+
+// 从 src/order/builder.zig 导入 signer
+const signer = @import("../signer/mod.zig");
+```
+
+### 8. JSON 解析选项
+
+**问题**: `std.json.parseFromSlice` 的选项变化。
+
+```zig
+// ✅ Zig 0.15+ 正确用法
+const parsed = try std.json.parseFromSlice(MyStruct, allocator, json_string, .{
+    .ignore_unknown_fields = true,
+    .allocate = .alloc_always,  // 确保字符串被分配
+});
+defer parsed.deinit();
+const data = parsed.value;
+```
+
+### 9. 哈希函数参数
+
+**问题**: 某些哈希上下文函数签名变化。
+
+```zig
+// ✅ Zig 0.15+ secp256k1 ECDSA with Keccak256
+const EcdsaSecp256k1Keccak256 = std.crypto.sign.ecdsa.Ecdsa(
+    std.crypto.ecc.Secp256k1,
+    std.crypto.hash.sha3.Keccak256,
+);
+```
+
+### 10. 错误联合处理
+
+**问题**: 某些标准库函数的错误类型变化。
+
+```zig
+// 需要处理更多的网络错误类型
+fn mapConnectionError(err: anyerror) Error {
+    return switch (err) {
+        error.ConnectionRefused => Error.ConnectionRefused,
+        error.ConnectionResetByPeer => Error.ConnectionReset,
+        error.ConnectionTimedOut => Error.Timeout,
+        error.NetworkUnreachable => Error.ConnectionFailed,
+        error.UnknownHostName => Error.DnsResolutionFailed,
+        else => Error.ConnectionFailed,
+    };
+}
+```
+
+### 常见迁移错误消息
+
+| 错误消息 | 原因 | 解决方案 |
+|---------|------|---------|
+| `expected 2 argument(s), found 1` | ArrayList.append 需要 allocator | 添加 allocator 参数 |
+| `ambiguous format string` | 自定义 format 需要 `{f}` | 使用 `{f}` 而非 `{}` |
+| `no field named 'response_storage'` | fetch API 已移除 | 使用 request/response 模式 |
+| `member access not allowed on type` | 枚举大小写变更 | 使用小写枚举值 |
+| `expected type 'i2'` | compare 返回类型 | 返回 -1, 0, 1 而非枚举 |
+
+### 迁移检查清单
+
+- [ ] ArrayList 方法添加 allocator 参数
+- [ ] HTTP 请求改用 request/response 模式
+- [ ] 自定义 format 使用 `{f}` 格式
+- [ ] @typeInfo 枚举使用小写
+- [ ] 检查 compare 函数返回 i2
+- [ ] 测试所有网络错误处理
 
 ---
 
