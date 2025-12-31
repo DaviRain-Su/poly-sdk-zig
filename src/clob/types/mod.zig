@@ -9,6 +9,7 @@ pub const order = @import("order.zig");
 pub const trade = @import("trade.zig");
 pub const account = @import("account.zig");
 pub const builder_types = @import("builder.zig");
+pub const rewards = @import("rewards.zig");
 
 // Re-export commonly used types - enums
 pub const OrderType = enums.OrderType;
@@ -78,6 +79,24 @@ pub const PaginatedBuilderTrades = builder_types.PaginatedBuilderTrades;
 pub const RevokeBuilderApiKeyRequest = builder_types.RevokeBuilderApiKeyRequest;
 pub const RevokeBuilderApiKeyResponse = builder_types.RevokeBuilderApiKeyResponse;
 
+// Re-export rewards types
+pub const OrderScoringParams = rewards.OrderScoringParams;
+pub const OrdersScoringParams = rewards.OrdersScoringParams;
+pub const OrderScoringResult = rewards.OrderScoringResult;
+pub const OrdersScoringResults = rewards.OrdersScoringResults;
+pub const MarketTradeEvent = rewards.MarketTradeEvent;
+pub const MarketTradeEvents = rewards.MarketTradeEvents;
+pub const MarketTradeEventsParams = rewards.MarketTradeEventsParams;
+pub const FeeRateResponse = rewards.FeeRateResponse;
+pub const FeeRateParams = rewards.FeeRateParams;
+pub const BooksRequest = rewards.BooksRequest;
+pub const MidpointsRequest = rewards.MidpointsRequest;
+pub const PricesRequest = rewards.PricesRequest;
+pub const SpreadsRequest = rewards.SpreadsRequest;
+pub const LastTradesPricesRequest = rewards.LastTradesPricesRequest;
+pub const ClosedOnlyModeResponse = rewards.ClosedOnlyModeResponse;
+pub const UpdateBalanceAllowanceResponse = rewards.UpdateBalanceAllowanceResponse;
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -90,6 +109,7 @@ test "all type modules" {
     _ = trade;
     _ = account;
     _ = builder_types;
+    _ = rewards;
 }
 
 test "type exports" {
@@ -122,4 +142,13 @@ test "builder type exports" {
     _ = BuilderTradesParams{};
     _ = BuilderTrade{ .id = "trade1" };
     _ = RevokeBuilderApiKeyResponse{ .success = true };
+}
+
+test "rewards type exports" {
+    _ = OrderScoringParams{ .order_id = "order-123" };
+    _ = OrdersScoringParams{ .order_ids = &.{} };
+    _ = OrderScoringResult{};
+    _ = MarketTradeEvent{};
+    _ = FeeRateResponse{};
+    _ = ClosedOnlyModeResponse{};
 }

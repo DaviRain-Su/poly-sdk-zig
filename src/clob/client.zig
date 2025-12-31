@@ -26,8 +26,10 @@ const types = @import("types/mod.zig");
 const root = @import("../root.zig");
 
 // Auth imports
+const L1Auth = root.auth.L1Auth;
 const L2Auth = root.auth.L2Auth;
 const ApiCreds = root.auth.ApiCreds;
+const L1PolyHeader = root.auth.L1PolyHeader;
 const L2PolyHeader = root.auth.L2PolyHeader;
 const BuilderAuth = root.auth.BuilderAuth;
 const BuilderCreds = root.auth.BuilderCreds;
@@ -126,6 +128,20 @@ pub const Endpoints = struct {
     // Builder endpoints
     pub const BUILDER_API_KEY = "/auth/builder-api-key";
     pub const BUILDER_TRADES = "/builder/trades";
+
+    // v0.5 - Rewards and Analytics endpoints
+    pub const ORDER_SCORING = "/order-scoring";
+    pub const ORDERS_SCORING = "/orders-scoring";
+    pub const LIVE_ACTIVITY_EVENTS = "/live-activity/events";
+    pub const FEE_RATE = "/fee-rate";
+    pub const BALANCE_ALLOWANCE_UPDATE = "/balance-allowance/update";
+
+    // Batch endpoints
+    pub const BOOKS = "/books";
+    pub const MIDPOINTS = "/midpoints";
+    pub const PRICES = "/prices";
+    pub const SPREADS = "/spreads";
+    pub const LAST_TRADES_PRICES = "/last-trades-prices";
 };
 
 /// Default base URLs
@@ -659,6 +675,138 @@ pub const ClobClient = struct {
     }
 
     // =========================================================================
+    // L2 Auth Method Aliases (for clearer code)
+    // =========================================================================
+
+    /// L2 authenticated GET request (alias for doAuthGet)
+    fn doL2Get(self: *ClobClient, path: []const u8) ![]u8 {
+        return self.doAuthGet(path);
+    }
+
+    /// L2 authenticated POST request (alias for doAuthPost)
+    fn doL2Post(self: *ClobClient, path: []const u8, body: []const u8) ![]u8 {
+        return self.doAuthPost(path, body);
+    }
+
+    /// L2 authenticated DELETE request (alias for doAuthDelete with null body)
+    fn doL2Delete(self: *ClobClient, path: []const u8) ![]u8 {
+        return self.doAuthDelete(path, null);
+    }
+
+    // =========================================================================
+    // L1 Auth Methods (EIP-712 signature for API Key management)
+    // =========================================================================
+
+    /// Perform L1 authenticated POST request
+    ///
+    /// L1 authentication uses EIP-712 signatures for wallet verification.
+    /// Used for creating and deriving API keys.
+    fn doL1Post(self: *ClobClient, path: []const u8, body: ?[]const u8) ![]u8 {
+        const wallet = self.wallet orelse return Error.Unauthorized;
+
+        const url = try self.buildUrl(path);
+        defer self.allocator.free(url);
+
+        // Generate L1 auth header
+        const l1 = L1Auth.init(wallet, .{ .chain_id = self.config.chain_id });
+        const auth_header = l1.generateHeader() catch return Error.Unauthorized;
+
+        const poly_headers = auth_header.toHttpHeaders();
+
+        const uri = std.Uri.parse(url) catch return Error.BadRequest;
+
+        var req = self.http_client.request(.POST, uri, .{
+            .extra_headers = &[_]std.http.Header{
+                .{ .name = "Accept", .value = "application/json" },
+                .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
+                .{ .name = "Content-Type", .value = "application/json" },
+                poly_headers[0],
+                poly_headers[1],
+                poly_headers[2],
+                poly_headers[3],
+            },
+        }) catch |err| {
+            return switch (err) {
+                error.ConnectionRefused => Error.ConnectionRefused,
+                error.ConnectionResetByPeer => Error.ConnectionReset,
+                error.ConnectionTimedOut => Error.Timeout,
+                error.NetworkUnreachable => Error.ConnectionFailed,
+                error.UnknownHostName => Error.DnsResolutionFailed,
+                else => Error.ConnectionFailed,
+            };
+        };
+        defer req.deinit();
+
+        // Send body if provided
+        if (body) |b| {
+            req.transfer_encoding = .{ .content_length = b.len };
+            var body_writer = req.sendBodyUnflushed(&.{}) catch return Error.ConnectionFailed;
+            body_writer.writer.writeAll(b) catch return Error.ConnectionFailed;
+            body_writer.end() catch return Error.ConnectionFailed;
+            if (req.connection) |conn| {
+                conn.flush() catch return Error.ConnectionFailed;
+            }
+        } else {
+            req.sendBodiless() catch return Error.ConnectionFailed;
+        }
+
+        var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
+
+        if (errorFromStatus(response.head.status)) |err| {
+            return err;
+        }
+
+        return readResponseBody(self.allocator, &response) catch return Error.ConnectionFailed;
+    }
+
+    /// Perform L1 authenticated GET request
+    fn doL1Get(self: *ClobClient, path: []const u8) ![]u8 {
+        const wallet = self.wallet orelse return Error.Unauthorized;
+
+        const url = try self.buildUrl(path);
+        defer self.allocator.free(url);
+
+        // Generate L1 auth header
+        const l1 = L1Auth.init(wallet, .{ .chain_id = self.config.chain_id });
+        const auth_header = l1.generateHeader() catch return Error.Unauthorized;
+
+        const poly_headers = auth_header.toHttpHeaders();
+
+        const uri = std.Uri.parse(url) catch return Error.BadRequest;
+
+        var req = self.http_client.request(.GET, uri, .{
+            .extra_headers = &[_]std.http.Header{
+                .{ .name = "Accept", .value = "application/json" },
+                .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
+                .{ .name = "Content-Type", .value = "application/json" },
+                poly_headers[0],
+                poly_headers[1],
+                poly_headers[2],
+                poly_headers[3],
+            },
+        }) catch |err| {
+            return switch (err) {
+                error.ConnectionRefused => Error.ConnectionRefused,
+                error.ConnectionResetByPeer => Error.ConnectionReset,
+                error.ConnectionTimedOut => Error.Timeout,
+                error.NetworkUnreachable => Error.ConnectionFailed,
+                error.UnknownHostName => Error.DnsResolutionFailed,
+                else => Error.ConnectionFailed,
+            };
+        };
+        defer req.deinit();
+
+        req.sendBodiless() catch return Error.ConnectionFailed;
+        var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
+
+        if (errorFromStatus(response.head.status)) |err| {
+            return err;
+        }
+
+        return readResponseBody(self.allocator, &response) catch return Error.ConnectionFailed;
+    }
+
+    // =========================================================================
     // Server Status Endpoints
     // =========================================================================
 
@@ -713,6 +861,34 @@ pub const ClobClient = struct {
     /// Get simplified markets - GET /simplified-markets
     pub fn getSimplifiedMarkets(self: *ClobClient) !std.json.Parsed([]types.SimplifiedMarket) {
         const body = try self.doGet(Endpoints.SIMPLIFIED_MARKETS);
+        defer self.allocator.free(body);
+
+        return std.json.parseFromSlice([]types.SimplifiedMarket, self.allocator, body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    /// Get sampling markets - GET /sampling-markets
+    ///
+    /// Returns a random sample of markets. Useful for initial data loading
+    /// or when you don't need the full market list.
+    pub fn getSamplingMarkets(self: *ClobClient) !std.json.Parsed([]types.Market) {
+        const body = try self.doGet(Endpoints.SAMPLING_MARKETS);
+        defer self.allocator.free(body);
+
+        return std.json.parseFromSlice([]types.Market, self.allocator, body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    /// Get sampling simplified markets - GET /sampling-simplified-markets
+    ///
+    /// Returns a random sample of simplified markets.
+    pub fn getSamplingSimplifiedMarkets(self: *ClobClient) !std.json.Parsed([]types.SimplifiedMarket) {
+        const path = "/sampling-simplified-markets";
+        const body = try self.doGet(path);
         defer self.allocator.free(body);
 
         return std.json.parseFromSlice([]types.SimplifiedMarket, self.allocator, body, .{
@@ -1216,6 +1392,109 @@ pub const ClobClient = struct {
     }
 
     // =========================================================================
+    // L1 Authenticated Endpoints - API Key Management
+    // =========================================================================
+
+    /// Create a new API key using L1 (EIP-712) authentication
+    ///
+    /// Endpoint: POST /auth/api-key
+    /// Auth: L1 (Wallet signature required)
+    ///
+    /// This creates a new API key for the authenticated wallet.
+    /// The returned credentials should be stored securely.
+    ///
+    /// ## Example
+    /// ```zig
+    /// var client = ClobClient.init(allocator, .{});
+    /// client.wallet = &wallet;  // Set wallet for L1 auth
+    ///
+    /// var creds = try client.createApiKey();
+    /// defer creds.deinit();
+    ///
+    /// // Now use creds for L2 authentication
+    /// ```
+    pub fn createApiKey(self: *ClobClient) !ApiCreds {
+        if (self.wallet == null) return Error.Unauthorized;
+
+        const response_body = try self.doL1Post(Endpoints.API_KEY, null);
+        defer self.allocator.free(response_body);
+
+        return ApiCreds.fromJson(self.allocator, response_body) catch Error.InvalidJson;
+    }
+
+    /// Derive an existing API key using L1 (EIP-712) authentication
+    ///
+    /// Endpoint: GET /auth/derive-api-key
+    /// Auth: L1 (Wallet signature required)
+    ///
+    /// If an API key already exists for this wallet, this endpoint returns it.
+    /// This is useful when you've lost your API credentials but still have access to the wallet.
+    ///
+    /// ## Example
+    /// ```zig
+    /// var creds = try client.deriveApiKey();
+    /// defer creds.deinit();
+    /// ```
+    pub fn deriveApiKey(self: *ClobClient) !ApiCreds {
+        if (self.wallet == null) return Error.Unauthorized;
+
+        const path = "/auth/derive-api-key";
+        const response_body = try self.doL1Get(path);
+        defer self.allocator.free(response_body);
+
+        return ApiCreds.fromJson(self.allocator, response_body) catch Error.InvalidJson;
+    }
+
+    /// Create or derive API key (convenience method)
+    ///
+    /// Auth: L1 (Wallet signature required)
+    ///
+    /// This method first tries to derive an existing API key. If that fails
+    /// (e.g., no key exists), it creates a new one.
+    ///
+    /// This is the recommended way to obtain API credentials when you're not
+    /// sure if a key already exists.
+    ///
+    /// ## Example
+    /// ```zig
+    /// var client = ClobClient.init(allocator, .{});
+    /// client.wallet = &wallet;
+    ///
+    /// var creds = try client.createOrDeriveApiKey();
+    /// defer creds.deinit();
+    ///
+    /// // Use creds for authenticated requests
+    /// ```
+    pub fn createOrDeriveApiKey(self: *ClobClient) !ApiCreds {
+        if (self.wallet == null) return Error.Unauthorized;
+
+        // First try to derive existing key
+        if (self.deriveApiKey()) |creds| {
+            return creds;
+        } else |err| {
+            // If derive fails (e.g., no existing key), create a new one
+            if (err == Error.NotFound or err == Error.Unauthorized) {
+                return self.createApiKey();
+            }
+            return err;
+        }
+    }
+
+    /// Set wallet for L1 authentication
+    ///
+    /// This is useful when you want to use L1 endpoints on an existing client.
+    pub fn setWallet(self: *ClobClient, wallet: *const Wallet) void {
+        self.wallet = wallet;
+    }
+
+    /// Set API credentials for L2 authentication
+    ///
+    /// This is useful after obtaining credentials via createOrDeriveApiKey().
+    pub fn setApiCreds(self: *ClobClient, creds: *const ApiCreds) void {
+        self.api_creds = creds;
+    }
+
+    // =========================================================================
     // L2 Authenticated Endpoints - Heartbeat
     // =========================================================================
 
@@ -1443,6 +1722,496 @@ pub const ClobClient = struct {
 
         return self.postOrder(&order, order_type);
     }
+
+    // =========================================================================
+    // v0.5 - Order Scoring Endpoints (L2 authenticated)
+    // =========================================================================
+
+    /// Check if a single order is currently scoring for liquidity rewards
+    ///
+    /// Endpoint: GET /order-scoring
+    /// Auth: L2 (API Key required)
+    pub fn isOrderScoring(self: *ClobClient, order_id: []const u8) !bool {
+        if (self.api_creds == null) return Error.Unauthorized;
+
+        var path_buf: [256]u8 = undefined;
+        const path = std.fmt.bufPrint(&path_buf, "{s}?orderId={s}", .{
+            Endpoints.ORDER_SCORING,
+            order_id,
+        }) catch return Error.BadRequest;
+
+        const response_body = try self.doL2Get(path);
+        defer self.allocator.free(response_body);
+
+        // 解析响应 - 通常返回 true/false 或包含 scoring 字段的对象
+        const parsed = std.json.parseFromSlice(
+            struct { scoring: bool = false },
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value.scoring;
+    }
+
+    /// Check if multiple orders are currently scoring for liquidity rewards
+    ///
+    /// Endpoint: POST /orders-scoring
+    /// Auth: L2 (API Key required)
+    pub fn areOrdersScoring(self: *ClobClient, order_ids: []const []const u8) !std.json.Parsed([]types.OrderScoringResult) {
+        if (self.api_creds == null) return Error.Unauthorized;
+
+        // 构建请求体
+        var body_list = try std.ArrayList(u8).initCapacity(self.allocator, 256);
+        defer body_list.deinit(self.allocator);
+
+        try body_list.appendSlice(self.allocator, "{\"orderIds\":[");
+        for (order_ids, 0..) |id, i| {
+            if (i > 0) try body_list.append(self.allocator, ',');
+            try body_list.append(self.allocator, '"');
+            try body_list.appendSlice(self.allocator, id);
+            try body_list.append(self.allocator, '"');
+        }
+        try body_list.appendSlice(self.allocator, "]}");
+
+        const request_body = try body_list.toOwnedSlice(self.allocator);
+        defer self.allocator.free(request_body);
+
+        const response_body = try self.doL2Post(Endpoints.ORDERS_SCORING, request_body);
+        defer self.allocator.free(response_body);
+
+        return std.json.parseFromSlice([]types.OrderScoringResult, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    // =========================================================================
+    // v0.5 - Market Analytics Endpoints (L0 public)
+    // =========================================================================
+
+    /// Get market trade events for a specific condition ID
+    ///
+    /// Endpoint: GET /live-activity/events/{condition_id}
+    /// Auth: L0 (no auth required)
+    pub fn getMarketTradesEvents(
+        self: *ClobClient,
+        condition_id: []const u8,
+        params: struct {
+            limit: ?u32 = null,
+            offset: ?u32 = null,
+        },
+    ) !std.json.Parsed(types.MarketTradeEvents) {
+        var path_buf: [512]u8 = undefined;
+        var path_len: usize = 0;
+
+        // 构建路径
+        const base = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{
+            Endpoints.LIVE_ACTIVITY_EVENTS,
+            condition_id,
+        }) catch return Error.BadRequest;
+        path_len = base.len;
+
+        var has_params = false;
+
+        if (params.limit) |limit| {
+            path_buf[path_len] = if (has_params) '&' else '?';
+            path_len += 1;
+            const param = std.fmt.bufPrint(path_buf[path_len..], "limit={d}", .{limit}) catch return Error.BadRequest;
+            path_len += param.len;
+            has_params = true;
+        }
+
+        if (params.offset) |offset| {
+            path_buf[path_len] = if (has_params) '&' else '?';
+            path_len += 1;
+            const param = std.fmt.bufPrint(path_buf[path_len..], "offset={d}", .{offset}) catch return Error.BadRequest;
+            path_len += param.len;
+        }
+
+        const path = path_buf[0..path_len];
+        const response_body = try self.doGet(path);
+        defer self.allocator.free(response_body);
+
+        return std.json.parseFromSlice(types.MarketTradeEvents, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    /// Get fee rate for a market
+    ///
+    /// Endpoint: GET /fee-rate
+    /// Auth: L0 (no auth required)
+    pub fn getFeeRateBps(self: *ClobClient, token_id: ?[]const u8) !types.FeeRateResponse {
+        var path_buf: [256]u8 = undefined;
+        var path: []const u8 = undefined;
+
+        if (token_id) |id| {
+            path = std.fmt.bufPrint(&path_buf, "{s}?token_id={s}", .{
+                Endpoints.FEE_RATE,
+                id,
+            }) catch return Error.BadRequest;
+        } else {
+            path = Endpoints.FEE_RATE;
+        }
+
+        const response_body = try self.doGet(path);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.FeeRateResponse,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    // =========================================================================
+    // v0.5 - Batch Endpoints (L0 public)
+    // =========================================================================
+
+    /// Get multiple order books in a single request
+    ///
+    /// Endpoint: POST /books
+    /// Auth: L0 (no auth required)
+    pub fn getOrderBooks(self: *ClobClient, token_ids: []const []const u8) !std.json.Parsed([]types.OrderBookSummary) {
+        // 构建请求体
+        var body_list = try std.ArrayList(u8).initCapacity(self.allocator, 256);
+        defer body_list.deinit(self.allocator);
+
+        try body_list.appendSlice(self.allocator, "[");
+        for (token_ids, 0..) |id, i| {
+            if (i > 0) try body_list.append(self.allocator, ',');
+            try body_list.append(self.allocator, '"');
+            try body_list.appendSlice(self.allocator, id);
+            try body_list.append(self.allocator, '"');
+        }
+        try body_list.appendSlice(self.allocator, "]");
+
+        const request_body = try body_list.toOwnedSlice(self.allocator);
+        defer self.allocator.free(request_body);
+
+        const response_body = try self.doPost(Endpoints.BOOKS, request_body);
+        defer self.allocator.free(response_body);
+
+        return std.json.parseFromSlice([]types.OrderBookSummary, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    /// Get multiple midpoints in a single request
+    ///
+    /// Endpoint: POST /midpoints
+    /// Auth: L0 (no auth required)
+    pub fn getMidpoints(self: *ClobClient, token_ids: []const []const u8) !std.json.Parsed([]types.MidpointResponse) {
+        var body_list = try std.ArrayList(u8).initCapacity(self.allocator, 256);
+        defer body_list.deinit(self.allocator);
+
+        try body_list.appendSlice(self.allocator, "[");
+        for (token_ids, 0..) |id, i| {
+            if (i > 0) try body_list.append(self.allocator, ',');
+            try body_list.append(self.allocator, '"');
+            try body_list.appendSlice(self.allocator, id);
+            try body_list.append(self.allocator, '"');
+        }
+        try body_list.appendSlice(self.allocator, "]");
+
+        const request_body = try body_list.toOwnedSlice(self.allocator);
+        defer self.allocator.free(request_body);
+
+        const response_body = try self.doPost(Endpoints.MIDPOINTS, request_body);
+        defer self.allocator.free(response_body);
+
+        return std.json.parseFromSlice([]types.MidpointResponse, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    /// Get multiple prices in a single request
+    ///
+    /// Endpoint: POST /prices
+    /// Auth: L0 (no auth required)
+    pub fn getPrices(self: *ClobClient, token_ids: []const []const u8, side: ?types.Side) !std.json.Parsed([]types.PriceResponse) {
+        var body_list = try std.ArrayList(u8).initCapacity(self.allocator, 256);
+        defer body_list.deinit(self.allocator);
+
+        try body_list.appendSlice(self.allocator, "{\"token_ids\":[");
+        for (token_ids, 0..) |id, i| {
+            if (i > 0) try body_list.append(self.allocator, ',');
+            try body_list.append(self.allocator, '"');
+            try body_list.appendSlice(self.allocator, id);
+            try body_list.append(self.allocator, '"');
+        }
+        try body_list.appendSlice(self.allocator, "]");
+
+        if (side) |s| {
+            try body_list.appendSlice(self.allocator, ",\"side\":\"");
+            try body_list.appendSlice(self.allocator, if (s == .BUY) "BUY" else "SELL");
+            try body_list.append(self.allocator, '"');
+        }
+
+        try body_list.append(self.allocator, '}');
+
+        const request_body = try body_list.toOwnedSlice(self.allocator);
+        defer self.allocator.free(request_body);
+
+        const response_body = try self.doPost(Endpoints.PRICES, request_body);
+        defer self.allocator.free(response_body);
+
+        return std.json.parseFromSlice([]types.PriceResponse, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    /// Get multiple spreads in a single request
+    ///
+    /// Endpoint: POST /spreads
+    /// Auth: L0 (no auth required)
+    pub fn getSpreads(self: *ClobClient, token_ids: []const []const u8) !std.json.Parsed([]types.SpreadResponse) {
+        var body_list = try std.ArrayList(u8).initCapacity(self.allocator, 256);
+        defer body_list.deinit(self.allocator);
+
+        try body_list.appendSlice(self.allocator, "[");
+        for (token_ids, 0..) |id, i| {
+            if (i > 0) try body_list.append(self.allocator, ',');
+            try body_list.append(self.allocator, '"');
+            try body_list.appendSlice(self.allocator, id);
+            try body_list.append(self.allocator, '"');
+        }
+        try body_list.appendSlice(self.allocator, "]");
+
+        const request_body = try body_list.toOwnedSlice(self.allocator);
+        defer self.allocator.free(request_body);
+
+        const response_body = try self.doPost(Endpoints.SPREADS, request_body);
+        defer self.allocator.free(response_body);
+
+        return std.json.parseFromSlice([]types.SpreadResponse, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    /// Get multiple last trade prices in a single request
+    ///
+    /// Endpoint: POST /last-trades-prices
+    /// Auth: L0 (no auth required)
+    pub fn getLastTradesPrices(self: *ClobClient, token_ids: []const []const u8) !std.json.Parsed([]types.LastTradePriceResponse) {
+        var body_list = try std.ArrayList(u8).initCapacity(self.allocator, 256);
+        defer body_list.deinit(self.allocator);
+
+        try body_list.appendSlice(self.allocator, "[");
+        for (token_ids, 0..) |id, i| {
+            if (i > 0) try body_list.append(self.allocator, ',');
+            try body_list.append(self.allocator, '"');
+            try body_list.appendSlice(self.allocator, id);
+            try body_list.append(self.allocator, '"');
+        }
+        try body_list.appendSlice(self.allocator, "]");
+
+        const request_body = try body_list.toOwnedSlice(self.allocator);
+        defer self.allocator.free(request_body);
+
+        const response_body = try self.doPost(Endpoints.LAST_TRADES_PRICES, request_body);
+        defer self.allocator.free(response_body);
+
+        return std.json.parseFromSlice([]types.LastTradePriceResponse, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    // =========================================================================
+    // v0.5 - API Key Management Endpoints (L2 authenticated)
+    // =========================================================================
+
+    /// Get list of API keys for the authenticated user
+    ///
+    /// Endpoint: GET /auth/api-keys
+    /// Auth: L2 (API Key required)
+    pub fn getApiKeys(self: *ClobClient) !std.json.Parsed([]types.ApiKeyInfo) {
+        if (self.api_creds == null) return Error.Unauthorized;
+
+        const response_body = try self.doL2Get(Endpoints.API_KEYS);
+        defer self.allocator.free(response_body);
+
+        return std.json.parseFromSlice([]types.ApiKeyInfo, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    /// Delete an API key
+    ///
+    /// Endpoint: DELETE /auth/api-key
+    /// Auth: L2 (API Key required)
+    pub fn deleteApiKey(self: *ClobClient, api_key: []const u8) !types.DeleteApiKeyResponse {
+        if (self.api_creds == null) return Error.Unauthorized;
+
+        var path_buf: [256]u8 = undefined;
+        const path = std.fmt.bufPrint(&path_buf, "{s}?api_key={s}", .{
+            Endpoints.API_KEY,
+            api_key,
+        }) catch return Error.BadRequest;
+
+        const response_body = try self.doL2Delete(path);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.DeleteApiKeyResponse,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    /// Get closed-only mode status (ban status)
+    ///
+    /// Endpoint: GET /auth/ban-status/closed-only
+    /// Auth: L2 (API Key required)
+    pub fn getClosedOnlyMode(self: *ClobClient) !types.ClosedOnlyModeResponse {
+        if (self.api_creds == null) return Error.Unauthorized;
+
+        const response_body = try self.doL2Get(Endpoints.BAN_STATUS);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.ClosedOnlyModeResponse,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    /// Update balance allowance (refresh from chain)
+    ///
+    /// Endpoint: GET /balance-allowance/update
+    /// Auth: L2 (API Key required)
+    pub fn updateBalanceAllowance(self: *ClobClient) !types.UpdateBalanceAllowanceResponse {
+        if (self.api_creds == null) return Error.Unauthorized;
+
+        const response_body = try self.doL2Get(Endpoints.BALANCE_ALLOWANCE_UPDATE);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.UpdateBalanceAllowanceResponse,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    // =========================================================================
+    // Readonly API Key Endpoints (L2 authenticated)
+    // =========================================================================
+
+    /// Create a readonly API key
+    ///
+    /// Endpoint: POST /auth/readonly-api-key
+    /// Auth: L2 (API Key required)
+    ///
+    /// Readonly API keys can only be used for reading data, not placing orders.
+    pub fn createReadonlyApiKey(self: *ClobClient, params: types.CreateReadonlyApiKeyParams) !types.CreateReadonlyApiKeyResponse {
+        if (self.api_creds == null) return Error.Unauthorized;
+
+        const json_body = std.json.stringifyAlloc(self.allocator, params, .{}) catch return Error.OutOfMemory;
+        defer self.allocator.free(json_body);
+
+        const response_body = try self.doL2Post("/auth/readonly-api-key", json_body);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.CreateReadonlyApiKeyResponse,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    /// Get all readonly API keys for the authenticated user
+    ///
+    /// Endpoint: GET /auth/readonly-api-keys
+    /// Auth: L2 (API Key required)
+    pub fn getReadonlyApiKeys(self: *ClobClient) !std.json.Parsed([]types.ReadonlyApiKeyInfo) {
+        if (self.api_creds == null) return Error.Unauthorized;
+
+        const response_body = try self.doL2Get("/auth/readonly-api-keys");
+        defer self.allocator.free(response_body);
+
+        return std.json.parseFromSlice([]types.ReadonlyApiKeyInfo, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
+    }
+
+    /// Delete a readonly API key
+    ///
+    /// Endpoint: DELETE /auth/readonly-api-key
+    /// Auth: L2 (API Key required)
+    pub fn deleteReadonlyApiKey(self: *ClobClient, api_key: []const u8) !types.DeleteReadonlyApiKeyResponse {
+        if (self.api_creds == null) return Error.Unauthorized;
+
+        var path_buf: [256]u8 = undefined;
+        const path = std.fmt.bufPrint(&path_buf, "/auth/readonly-api-key?api_key={s}", .{api_key}) catch return Error.BadRequest;
+
+        const response_body = try self.doL2Delete(path);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.DeleteReadonlyApiKeyResponse,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    /// Validate a readonly API key (public endpoint)
+    ///
+    /// Endpoint: GET /auth/validate-readonly-api-key
+    /// Auth: None (public endpoint)
+    ///
+    /// This endpoint can be used to check if a readonly API key is valid
+    /// without requiring authentication.
+    pub fn validateReadonlyApiKey(self: *ClobClient, api_key: []const u8) !types.ValidateReadonlyApiKeyResponse {
+        var path_buf: [256]u8 = undefined;
+        const path = std.fmt.bufPrint(&path_buf, "/auth/validate-readonly-api-key?api_key={s}", .{api_key}) catch return Error.BadRequest;
+
+        const response_body = try self.doGet(path);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.ValidateReadonlyApiKeyResponse,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
 };
 
 // ============================================================================
@@ -1564,4 +2333,43 @@ test "ClobClient.rfqClient with auth" {
     // Verify RfqClient has auth configured
     try std.testing.expect(rfq.api_creds != null);
     try std.testing.expectEqualStrings("test-key", rfq.api_creds.?.getApiKey());
+}
+
+test "ClobClient L1 endpoints - unauthenticated" {
+    var client = ClobClient.init(std.testing.allocator, .{});
+    defer client.deinit();
+
+    // Should return Unauthorized for L1 endpoints without wallet
+    const create_result = client.createApiKey();
+    try std.testing.expectError(Error.Unauthorized, create_result);
+
+    const derive_result = client.deriveApiKey();
+    try std.testing.expectError(Error.Unauthorized, derive_result);
+
+    const create_or_derive_result = client.createOrDeriveApiKey();
+    try std.testing.expectError(Error.Unauthorized, create_or_derive_result);
+}
+
+test "ClobClient.setWallet and setApiCreds" {
+    const allocator = std.testing.allocator;
+
+    var client = ClobClient.init(allocator, .{});
+    defer client.deinit();
+
+    // Initially no auth
+    try std.testing.expect(!client.hasAuth());
+    try std.testing.expect(client.wallet == null);
+
+    // Set wallet
+    const wallet = try root.signer.Wallet.fromPrivateKeyHex(
+        "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318",
+    );
+    client.setWallet(&wallet);
+    try std.testing.expect(client.wallet != null);
+
+    // Set credentials
+    var creds = try ApiCreds.init(allocator, "key", "secret", "pass");
+    defer creds.deinit();
+    client.setApiCreds(&creds);
+    try std.testing.expect(client.hasAuth());
 }

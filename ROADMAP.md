@@ -14,8 +14,8 @@
 
 ## 当前状态
 
-**版本**: v0.4.0 (WebSocket)  
-**阶段**: v0.4 - ✅ 已完成
+**版本**: v0.5.0 (奖励与分析)  
+**阶段**: v0.5 - ✅ 已完成
 
 ---
 
@@ -66,8 +66,8 @@ const book = try client.getOrderBook(token_id);
 |------|------|------|
 | `GET /markets` | `getMarkets()` | ✅ |
 | `GET /simplified-markets` | `getSimplifiedMarkets()` | ✅ |
-| `GET /sampling-markets` | `getSamplingMarkets()` | ⏳ |
-| `GET /sampling-simplified-markets` | `getSamplingSimplifiedMarkets()` | ⏳ |
+| `GET /sampling-markets` | `getSamplingMarkets()` | ✅ |
+| `GET /sampling-simplified-markets` | `getSamplingSimplifiedMarkets()` | ✅ |
 | `GET /markets/{condition_id}` | `getMarket()` | ✅ |
 
 #### 价格和订单簿
@@ -75,18 +75,18 @@ const book = try client.getOrderBook(token_id);
 | 端点 | 方法 | 状态 |
 |------|------|------|
 | `GET /book` | `getOrderBook()` | ✅ |
-| `POST /books` | `getOrderBooks()` | ⏳ |
+| `POST /books` | `getOrderBooks()` | ✅ |
 | `GET /midpoint` | `getMidpoint()` | ✅ |
-| `POST /midpoints` | `getMidpoints()` | ⏳ |
+| `POST /midpoints` | `getMidpoints()` | ✅ |
 | `GET /price` | `getPrice()` | ✅ |
-| `POST /prices` | `getPrices()` | ⏳ |
+| `POST /prices` | `getPrices()` | ✅ |
 | `GET /spread` | `getSpread()` | ✅ |
-| `POST /spreads` | `getSpreads()` | ⏳ |
+| `POST /spreads` | `getSpreads()` | ✅ |
 | `GET /tick-size` | `getTickSize()` | ✅ |
 | `GET /neg-risk` | `getNegRisk()` | ✅ |
-| `GET /fee-rate` | `getFeeRateBps()` | ⏳ |
+| `GET /fee-rate` | `getFeeRateBps()` | ✅ |
 | `GET /last-trade-price` | `getLastTradePrice()` | ✅ |
-| `POST /last-trades-prices` | `getLastTradesPrices()` | ⏳ |
+| `POST /last-trades-prices` | `getLastTradesPrices()` | ✅ |
 
 ### 进度
 
@@ -141,9 +141,9 @@ try client.postOrder(order, .gtc);
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `POST /auth/api-key` | `createApiKey()` | ⏳ |
-| `GET /auth/derive-api-key` | `deriveApiKey()` | ⏳ |
-| - | `createOrDeriveApiKey()` | ⏳ |
+| `POST /auth/api-key` | `createApiKey()` | ✅ |
+| `GET /auth/derive-api-key` | `deriveApiKey()` | ✅ |
+| - | `createOrDeriveApiKey()` | ✅ |
 
 ### L2 认证端点
 
@@ -151,9 +151,9 @@ try client.postOrder(order, .gtc);
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `GET /auth/api-keys` | `getApiKeys()` | ⏳ |
-| `DELETE /auth/api-key` | `deleteApiKey()` | ⏳ |
-| `GET /auth/ban-status/closed-only` | `getClosedOnlyMode()` | ⏳ |
+| `GET /auth/api-keys` | `getApiKeys()` | ✅ |
+| `DELETE /auth/api-key` | `deleteApiKey()` | ✅ |
+| `GET /auth/ban-status/closed-only` | `getClosedOnlyMode()` | ✅ |
 
 #### 订单管理
 
@@ -174,7 +174,7 @@ try client.postOrder(order, .gtc);
 |------|------|------|
 | `GET /data/trades` | `getTrades()` | ✅ |
 | `GET /balance-allowance` | `getBalanceAllowance()` | ✅ |
-| `GET /balance-allowance/update` | `updateBalanceAllowance()` | ⏳ |
+| `GET /balance-allowance/update` | `updateBalanceAllowance()` | ✅ |
 | `GET /notifications` | `getNotifications()` | ✅ |
 | `DELETE /notifications` | `dropNotifications()` | ✅ |
 
@@ -239,10 +239,10 @@ const quotes = try client.rfq.getRfqQuotes(.{ .request_id = request.request_id }
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `POST /auth/readonly-api-key` | `createReadonlyApiKey()` | ⏳ |
-| `GET /auth/readonly-api-keys` | `getReadonlyApiKeys()` | ⏳ |
-| `DELETE /auth/readonly-api-key` | `deleteReadonlyApiKey()` | ⏳ |
-| `GET /auth/validate-readonly-api-key` | `validateReadonlyApiKey()` | ⏳ |
+| `POST /auth/readonly-api-key` | `createReadonlyApiKey()` | ✅ |
+| `GET /auth/readonly-api-keys` | `getReadonlyApiKeys()` | ✅ |
+| `DELETE /auth/readonly-api-key` | `deleteReadonlyApiKey()` | ✅ |
+| `GET /auth/validate-readonly-api-key` | `validateReadonlyApiKey()` | ✅ |
 
 ### RFQ (Request for Quote) 端点
 
@@ -333,33 +333,49 @@ try ws.run();
 
 ## v0.5 - 奖励与分析
 
-> **目标**: 流动性奖励和市场分析。
-> **端点数量**: ~10 个
+> **目标**: 订单评分、市场分析和遗留端点补充。
+> **端点数量**: ~15 个
 
-### 奖励端点
+### Stories
 
-| 端点 | 方法 | 状态 |
-|------|------|------|
-| `GET /rewards/user` | `getEarningsForUserForDay()` | ⏳ |
-| `GET /rewards/user/total` | `getTotalEarningsForUserForDay()` | ⏳ |
-| `GET /rewards/user/percentages` | `getRewardPercentages()` | ⏳ |
-| `GET /rewards/markets/current` | `getCurrentRewards()` | ⏳ |
-| `GET /rewards/markets/{conditionId}` | `getRawRewardsForMarket()` | ⏳ |
-| `GET /rewards/user/markets` | `getUserEarningsAndMarketsConfig()` | ⏳ |
+| Story | 状态 | 描述 |
+|-------|------|------|
+| [v0.5-rewards](./stories/v0.5-rewards.md) | ✅ 已完成 | 奖励与分析 API |
 
-### 市场分析
+### 订单评分 (CLOB API - L2)
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `GET /prices-history` | `getPricesHistory()` | ⏳ |
-| `GET /live-activity/events/{condition_id}` | `getMarketTradesEvents()` | ⏳ |
+| `GET /order-scoring` | `isOrderScoring()` | ✅ |
+| `POST /orders-scoring` | `areOrdersScoring()` | ✅ |
 
-### 订单评分
+### 市场分析 (CLOB API - L0)
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `GET /order-scoring` | `isOrderScoring()` | ⏳ |
-| `POST /orders-scoring` | `areOrdersScoring()` | ⏳ |
+| `GET /live-activity/events/{condition_id}` | `getMarketTradesEvents()` | ✅ |
+| `GET /fee-rate` | `getFeeRateBps()` | ✅ |
+
+### 批量端点 (v0.1 补充)
+
+| 端点 | 方法 | 状态 |
+|------|------|------|
+| `GET /sampling-markets` | `getSamplingMarkets()` | ✅ |
+| `GET /sampling-simplified-markets` | `getSamplingSimplifiedMarkets()` | ✅ |
+| `POST /books` | `getOrderBooks()` | ✅ |
+| `POST /midpoints` | `getMidpoints()` | ✅ |
+| `POST /prices` | `getPrices()` | ✅ |
+| `POST /spreads` | `getSpreads()` | ✅ |
+| `POST /last-trades-prices` | `getLastTradesPrices()` | ✅ |
+
+### API Key 管理端点 (v0.2 补充)
+
+| 端点 | 方法 | 状态 |
+|------|------|------|
+| `GET /auth/api-keys` | `getApiKeys()` | ✅ |
+| `DELETE /auth/api-key` | `deleteApiKey()` | ✅ |
+| `GET /auth/ban-status/closed-only` | `getClosedOnlyMode()` | ✅ |
+| `GET /balance-allowance/update` | `updateBalanceAllowance()` | ✅ |
 
 ---
 
@@ -385,7 +401,7 @@ try ws.run();
 | v0.2 | 认证与订单 (L1/L2) | ~25 | ✅ 完成 |
 | v0.3 | Builder + RFQ | ~25 | ✅ 完成 |
 | v0.4 | WebSocket | ~4 | ✅ 完成 |
-| v0.5 | 奖励 + 分析 | ~10 | ⏳ 待开始 |
+| v0.5 | 奖励 + 分析 | ~15 | ✅ 完成 |
 | **总计** | | **~84** | |
 
 ---
@@ -422,3 +438,5 @@ try ws.run();
 | 2024-12-31 | v0.4 开始：WebSocket Story 创建，研究 Polymarket WebSocket API |
 | 2024-12-31 | v0.4 WebSocket 基础模块：types.zig、client.zig、mod.zig (320 tests) |
 | 2024-12-31 | v0.4 完成：消息解析器、MarketChannel、UserChannel、文档 (343 tests) |
+| 2024-12-31 | v0.5 完成：订单评分、市场分析、批量端点、API Key 管理 (351 tests) |
+| 2026-01-01 | v0.6 开始：L1 认证端点 (createApiKey/deriveApiKey/createOrDeriveApiKey)、采样市场端点、Readonly API Key 端点 (356 tests) |
