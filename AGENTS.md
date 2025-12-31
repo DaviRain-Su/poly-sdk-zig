@@ -115,6 +115,122 @@ zig build run-examples  # 或手动运行 examples/
 - 已知问题/限制
 - 性能说明（如适用）
 
+### 测试质量要求（强制）
+
+**核心原则**: 所有测试必须通过，且无内存泄漏和段错误。
+
+#### 必须满足的条件
+
+1. **所有测试通过**: `zig build test` 和 `zig test src/root.zig` 必须 100% 通过
+2. **无内存泄漏**: 使用 `std.testing.allocator` 会自动检测内存泄漏
+3. **无段错误**: 测试不能崩溃或产生未定义行为
+
+#### 测试验证命令
+
+```bash
+# 必须全部通过才能提交
+zig build test           # 集成测试
+zig test src/root.zig    # 完整测试套件
+
+# 期望输出示例
+# All 263 tests passed.
+```
+
+#### 内存泄漏检测
+
+Zig 的 `std.testing.allocator` 会自动检测内存泄漏：
+
+```zig
+test "no memory leak" {
+    const allocator = std.testing.allocator;
+    
+    // 如果忘记 free，测试会失败
+    const buffer = try allocator.alloc(u8, 100);
+    defer allocator.free(buffer);  // ✅ 必须释放
+    
+    // 测试代码...
+}
+```
+
+#### 常见内存问题及解决方案
+
+```zig
+// ❌ 错误 - 内存泄漏
+test "leaky test" {
+    const allocator = std.testing.allocator;
+    const data = try allocator.alloc(u8, 100);
+    // 忘记 free -> 测试失败: memory leak detected
+}
+
+// ✅ 正确 - 使用 defer 释放
+test "clean test" {
+    const allocator = std.testing.allocator;
+    const data = try allocator.alloc(u8, 100);
+    defer allocator.free(data);
+    // 测试代码...
+}
+
+// ❌ 错误 - ArrayList 内存泄漏
+test "leaky arraylist" {
+    const allocator = std.testing.allocator;
+    var list = try std.ArrayList(u8).initCapacity(allocator, 16);
+    // 忘记 deinit -> 内存泄漏
+}
+
+// ✅ 正确 - ArrayList 正确释放
+test "clean arraylist" {
+    const allocator = std.testing.allocator;
+    var list = try std.ArrayList(u8).initCapacity(allocator, 16);
+    defer list.deinit();
+    // 测试代码...
+}
+```
+
+#### 段错误预防
+
+```zig
+// ❌ 危险 - 可能段错误
+test "dangerous" {
+    var ptr: ?*u8 = null;
+    _ = ptr.?.*;  // 解引用 null -> 段错误
+}
+
+// ✅ 安全 - 检查 null
+test "safe" {
+    var ptr: ?*u8 = null;
+    if (ptr) |p| {
+        _ = p.*;
+    }
+}
+
+// ❌ 危险 - 数组越界
+test "out of bounds" {
+    const arr = [_]u8{ 1, 2, 3 };
+    _ = arr[5];  // 越界 -> 段错误或未定义行为
+}
+
+// ✅ 安全 - 边界检查
+test "bounds checked" {
+    const arr = [_]u8{ 1, 2, 3 };
+    if (5 < arr.len) {
+        _ = arr[5];
+    }
+}
+```
+
+#### 提交前测试检查清单
+
+```markdown
+# 测试检查清单
+
+- [ ] `zig build test` 通过
+- [ ] `zig test src/root.zig` 通过
+- [ ] 无 "memory leak detected" 错误
+- [ ] 无段错误或崩溃
+- [ ] 新代码有对应的测试
+- [ ] 测试覆盖正常路径和错误路径
+```
+
 #### 4. 文档收尾阶段
 
 每次开发完成后必须更新：
@@ -295,6 +411,86 @@ pub fn functionName(args) ReturnType
 2. **保持同步**: 函数签名、参数名、返回类型必须与代码一致
 3. **中文编写**: 所有文档内容使用中文
 4. **链接有效**: 文档间的链接必须有效
+
+### Story 伪代码规范（强制）
+
+**核心原则**: Story 文件中的所有伪代码/示例代码必须符合 Zig 0.15 规范。
+
+#### 为什么重要
+
+Story 文件是开发的蓝图。如果伪代码不符合 Zig 0.15 规范，开发时会导致：
+- 编译错误
+- API 使用错误
+- 返工和时间浪费
+
+#### 必须遵守的 Zig 0.15 规则
+
+```zig
+// ❌ 错误 - 旧版本 ArrayList API
+var list = std.ArrayList(u8).init(allocator);
+try list.append(item);
+const slice = list.toOwnedSlice();
+
+// ✅ 正确 - Zig 0.15 ArrayList API
+var list = try std.ArrayList(u8).initCapacity(allocator, 16);
+defer list.deinit();
+try list.append(allocator, item);  // 需要 allocator 参数！
+const slice = try list.toOwnedSlice(allocator);  // 需要 allocator 参数！
+```
+
+```zig
+// ❌ 错误 - 旧版本 HTTP Client
+const result = try client.fetch(.{ .url = url });
+
+// ✅ 正确 - Zig 0.15 HTTP Client
+var req = client.request(.GET, uri, .{}) catch return error.ConnectionFailed;
+defer req.deinit();
+req.sendBodiless() catch return error.ConnectionFailed;
+var response = req.receiveHead(&.{}) catch return error.ConnectionFailed;
+var reader = response.reader(&.{});
+const body = reader.allocRemaining(allocator, std.Io.Limit.limited(10 * 1024 * 1024)) catch return error.ReadFailed;
+```
+
+```zig
+// ❌ 错误 - 旧版本 format
+pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void
+
+// ✅ 正确 - Zig 0.15 format (使用 {f})
+pub fn format(self: Self, writer: anytype) !void
+```
+
+#### Story 伪代码检查清单
+
+编写或审查 Story 文件时必须检查：
+
+- [ ] `ArrayList.append()` 传入 `allocator` 参数
+- [ ] `ArrayList.toOwnedSlice()` 传入 `allocator` 参数
+- [ ] HTTP 请求使用 `request/response` 模式，非 `fetch`
+- [ ] 自定义 `format` 函数使用简化签名
+- [ ] `@typeInfo` 枚举使用小写 (`.slice` 非 `.Slice`)
+- [ ] 所有资源有 `defer` 清理
+- [ ] 错误处理使用 `try` 或显式 `catch`
+
+#### 示例：正确的 Story 伪代码
+
+```markdown
+## 实现步骤
+
+### 1. 创建订单列表
+
+\`\`\`zig
+var orders = try std.ArrayList(SignedOrder).initCapacity(allocator, 10);
+defer orders.deinit();
+
+for (order_args) |args| {
+    const order = try builder.createOrder(args);
+    try orders.append(allocator, order);  // ✅ 正确：传入 allocator
+}
+
+const order_slice = try orders.toOwnedSlice(allocator);  // ✅ 正确：传入 allocator
+defer allocator.free(order_slice);
+\`\`\`
+```
 
 ### 文档更新检查清单
 

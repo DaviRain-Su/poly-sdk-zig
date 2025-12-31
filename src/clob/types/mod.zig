@@ -66,6 +66,7 @@ pub const BanStatusResponse = account.BanStatusResponse;
 pub const Notification = account.Notification;
 pub const DropNotificationsRequest = account.DropNotificationsRequest;
 pub const DropNotificationsResponse = account.DropNotificationsResponse;
+pub const HeartbeatResponse = account.HeartbeatResponse;
 
 // ============================================================================
 // Tests

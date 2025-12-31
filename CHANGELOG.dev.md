@@ -6,6 +6,100 @@
 
 ## 会话记录
 
+### Session 2024-12-31-013
+
+**日期**: 2024-12-31  
+**时长**: ~60 分钟  
+**目标**: 开始 v0.3 - 市价单、批量订单、Heartbeat
+
+#### 完成的工作
+
+##### 1. v0.3 Story 文件创建
+
+创建了 5 个新的 Story 文件：
+- `stories/v0.3-market-order.md` - 市价单支持
+- `stories/v0.3-batch-orders.md` - 批量订单
+- `stories/v0.3-heartbeat.md` - Heartbeat 端点
+- `stories/v0.3-builder.md` - Builder API Key 管理
+- `stories/v0.3-rfq.md` - RFQ 系统
+
+##### 2. 市价单支持 (`src/order/`)
+
+**calculator.zig 新增**:
+- `MarketPriceResult` - 市价计算结果类型
+- `calculateMarketPrice()` - 根据订单簿深度计算市价
+- `validateSlippage()` - 滑点验证
+- `InsufficientLiquidity` / `SlippageExceeded` 错误类型
+- 5 个测试
+
+**types.zig 新增**:
+- `MarketOrderOptions` - 市价单选项（time_in_force, tick_size, neg_risk）
+
+**builder.zig 新增**:
+- `createMarketOrder()` - 创建市价单
+- `createMarketOrderWithSalt()` - 使用指定 salt 创建市价单（测试用）
+- `InvalidTimeInForce` 错误类型
+- 5 个测试
+
+##### 3. 批量订单 (`src/clob/client.zig`)
+
+- `postOrders()` - POST /orders 批量发布订单
+- 手动构建 JSON 请求体（避免复杂类型序列化问题）
+
+##### 4. Heartbeat (`src/clob/`)
+
+**client.zig 新增**:
+- `Endpoints.HEARTBEAT = "/v1/heartbeats"`
+- `postHeartbeat()` - POST /v1/heartbeats
+
+**types/account.zig 新增**:
+- `HeartbeatResponse` - Heartbeat 响应类型
+
+##### 5. ClobClient 便捷方法
+
+- `createMarketOrder()` - 创建市价单
+- `createAndPostMarketOrder()` - 创建并发布市价单
+
+#### 技术细节
+
+**市价计算算法**:
+- BUY: 遍历 asks，根据 USDC 金额计算能买多少 token
+- SELL: 遍历 bids，根据 token 数量计算能卖多少 USDC
+- 支持跨多个价格层级
+- 计算平均成交价格
+
+**Decimal 除法溢出处理**:
+- 使用归一化和固定精度避免 i128 溢出
+- `rescale(6)` 统一精度后直接计算
+
+#### 测试结果
+
+```bash
+$ zig test src/root.zig
+All 263 tests passed.
+```
+
+| 模块 | 新增测试 |
+|------|----------|
+| order/calculator.zig | 5 |
+| order/builder.zig | 5 |
+| **v0.3 新增总计** | **10** |
+
+#### v0.3 进度
+
+- [x] 市价单支持 (FOK/FAK)
+- [x] 批量订单 (postOrders)
+- [x] Heartbeat 端点
+- [ ] Builder API Key 管理
+- [ ] RFQ 端点
+
+#### 下一步
+
+- [ ] 实现 Builder API Key 管理端点
+- [ ] 实现 RFQ 子客户端
+
+---
+
 ### Session 2024-12-31-012
 
 **日期**: 2024-12-31  

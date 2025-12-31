@@ -35,7 +35,10 @@ const SignedOrder = root.order.SignedOrder;
 const OrderBuilder = root.order.OrderBuilder;
 const OrderBuilderOptions = root.order.OrderBuilderOptions;
 const OrderArgs = root.order.OrderArgs;
+const MarketOrderArgs = root.order.MarketOrderArgs;
+const MarketOrderOptions = root.order.MarketOrderOptions;
 const CreateOrderOptions = root.order.CreateOrderOptions;
+const TimeInForce = root.order.TimeInForce;
 const Wallet = root.signer.Wallet;
 
 /// HTTP Error types
@@ -110,6 +113,9 @@ pub const Endpoints = struct {
     pub const API_KEYS = "/auth/api-keys";
     pub const API_KEY = "/auth/api-key";
     pub const BAN_STATUS = "/auth/ban-status/closed-only";
+
+    // Heartbeat (注意使用 /v1/ 前缀)
+    pub const HEARTBEAT = "/v1/heartbeats";
 };
 
 /// Default base URLs
@@ -644,6 +650,60 @@ pub const ClobClient = struct {
         return parsed.value;
     }
 
+    /// Post multiple orders - POST /orders
+    ///
+    /// Requires L2 authentication.
+    /// All orders in the batch will use the same order type.
+    pub fn postOrders(
+        self: *ClobClient,
+        orders: []const SignedOrder,
+        order_type: types.OrderType,
+    ) !types.PostOrdersResponse {
+        // Build order data array
+        // 需要分配缓冲区数组
+        const buffer_count = orders.len;
+        var buffers_list = self.allocator.alloc(SignedOrder.OrderDataBuffers, buffer_count) catch return Error.OutOfMemory;
+        defer self.allocator.free(buffers_list);
+
+        var order_data_list = self.allocator.alloc(SignedOrder.OrderDataView, buffer_count) catch return Error.OutOfMemory;
+        defer self.allocator.free(order_data_list);
+
+        for (orders, 0..) |*order, i| {
+            order_data_list[i] = order.toOrderData(&buffers_list[i]);
+        }
+
+        // Build request body - 使用简化的结构以避免 JSON 序列化问题
+        // API 期望的格式: { "orders": [{ "order": {...}, "orderType": "GTC" }, ...] }
+        var json_buf = std.ArrayList(u8).init(self.allocator);
+        defer json_buf.deinit();
+
+        var writer = json_buf.writer();
+        try writer.writeAll("{\"orders\":[");
+
+        for (order_data_list, 0..) |order_data, i| {
+            if (i > 0) try writer.writeByte(',');
+            try writer.writeAll("{\"order\":");
+            try std.json.stringify(order_data, .{}, writer);
+            try writer.writeAll(",\"orderType\":\"");
+            try writer.writeAll(order_type.toString());
+            try writer.writeAll("\"}");
+        }
+
+        try writer.writeAll("]}");
+
+        const json_body = json_buf.items;
+        const response_body = try self.doAuthPost(Endpoints.ORDERS, json_body);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(types.PostOrdersResponse, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
     /// Get open orders - GET /data/orders
     ///
     /// Requires L2 authentication.
@@ -917,6 +977,30 @@ pub const ClobClient = struct {
     }
 
     // =========================================================================
+    // L2 Authenticated Endpoints - Heartbeat
+    // =========================================================================
+
+    /// Send heartbeat - POST /v1/heartbeats
+    ///
+    /// Requires L2 authentication.
+    ///
+    /// The heartbeat endpoint is used by market makers to keep their orders active.
+    /// If no heartbeat is received within 10 seconds, all orders will be canceled.
+    ///
+    /// Recommended to call every 5-8 seconds in a background thread.
+    pub fn postHeartbeat(self: *ClobClient) !types.HeartbeatResponse {
+        const response_body = try self.doAuthPost(Endpoints.HEARTBEAT, "{}");
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(types.HeartbeatResponse, self.allocator, response_body, .{
+            .ignore_unknown_fields = true,
+        }) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    // =========================================================================
     // Convenience Methods
     // =========================================================================
 
@@ -944,6 +1028,47 @@ pub const ClobClient = struct {
         order_type: types.OrderType,
     ) !types.PostOrderResponse {
         const order = try self.createOrder(args, options);
+        return self.postOrder(&order, order_type);
+    }
+
+    /// Create a market order using the OrderBuilder
+    ///
+    /// Convenience method that wraps OrderBuilder.createMarketOrder.
+    /// Requires wallet and order book to be provided.
+    ///
+    /// Note: For market orders, you should first fetch the order book using
+    /// getOrderBook(), then pass it to this method.
+    pub fn createMarketOrder(
+        self: *ClobClient,
+        args: MarketOrderArgs,
+        order_book: *const types.OrderBookSummary,
+        options: MarketOrderOptions,
+    ) !SignedOrder {
+        const wallet = self.wallet orelse return Error.Unauthorized;
+        const builder = OrderBuilder.init(wallet, .{ .chain_id = self.config.chain_id });
+        return builder.createMarketOrder(args, order_book, options) catch return Error.BadRequest;
+    }
+
+    /// Create and post a market order in one step
+    ///
+    /// Convenience method that creates, signs, and posts a market order.
+    /// The order type is determined by MarketOrderOptions.time_in_force (FOK or FAK).
+    pub fn createAndPostMarketOrder(
+        self: *ClobClient,
+        args: MarketOrderArgs,
+        order_book: *const types.OrderBookSummary,
+        options: MarketOrderOptions,
+    ) !types.PostOrderResponse {
+        const order = try self.createMarketOrder(args, order_book, options);
+
+        // Map TimeInForce to OrderType
+        const order_type: types.OrderType = switch (options.time_in_force) {
+            .FOK => .FOK,
+            .FAK => .FAK,
+            .GTC => .GTC,
+            .GTD => .GTD,
+        };
+
         return self.postOrder(&order, order_type);
     }
 };

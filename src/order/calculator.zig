@@ -16,6 +16,11 @@ const TickSize = types.TickSize;
 const USDC_DECIMALS = types.USDC_DECIMALS;
 const CT_DECIMALS = types.CT_DECIMALS;
 
+// 导入订单簿类型
+const clob_types = @import("../clob/types/mod.zig");
+const OrderBookSummary = clob_types.OrderBookSummary;
+const OrderSummary = clob_types.OrderSummary;
+
 /// 计算错误
 pub const CalculatorError = error{
     /// 无效的价格（必须在 0 到 1 之间）
@@ -28,6 +33,10 @@ pub const CalculatorError = error{
     Overflow,
     /// 精度损失
     PrecisionLoss,
+    /// 订单簿深度不足
+    InsufficientLiquidity,
+    /// 滑点超限
+    SlippageExceeded,
 };
 
 /// 计算 Maker 金额
@@ -179,6 +188,164 @@ pub fn generateSalt() u256 {
     return std.mem.readInt(u256, &buf, .big);
 }
 
+/// 市价计算结果
+pub const MarketPriceResult = struct {
+    /// 计算出的平均价格
+    price: Decimal,
+    /// 可以获得的数量
+    filled_size: Decimal,
+    /// 需要支付的金额
+    total_cost: Decimal,
+    /// 是否可以完全成交
+    fully_fillable: bool,
+};
+
+/// 计算市价单的最优价格
+///
+/// 根据订单簿深度计算市价单的平均成交价格。
+///
+/// 参数:
+///   - order_book: 订单簿摘要
+///   - side: 交易方向 (BUY 遍历 asks, SELL 遍历 bids)
+///   - amount: 金额 (BUY: USDC 金额, SELL: token 数量)
+///
+/// 返回: 市价计算结果，包含平均价格和成交信息
+pub fn calculateMarketPrice(
+    order_book: *const OrderBookSummary,
+    side: Side,
+    amount: Decimal,
+) CalculatorError!MarketPriceResult {
+    // 根据方向选择订单列表
+    const orders = switch (side) {
+        .BUY => order_book.asks orelse return CalculatorError.InsufficientLiquidity,
+        .SELL => order_book.bids orelse return CalculatorError.InsufficientLiquidity,
+    };
+
+    if (orders.len == 0) {
+        return CalculatorError.InsufficientLiquidity;
+    }
+
+    var remaining = amount;
+    var total_cost = Decimal.ZERO;
+    var filled_size = Decimal.ZERO;
+
+    // 遍历订单簿价格层级
+    for (orders) |level| {
+        const level_price = Decimal.fromString(level.price) catch continue;
+        const level_size = Decimal.fromString(level.size) catch continue;
+
+        if (level_price.mantissa == 0) continue;
+
+        if (side == .BUY) {
+            // BUY: remaining 是 USDC 金额，计算能买多少 token
+            // cost = price * size, so size = remaining / price
+            const max_size_at_level = remaining.div(level_price) catch continue;
+            const fill_size = if (max_size_at_level.compare(level_size) <= 0)
+                max_size_at_level
+            else
+                level_size;
+
+            const cost = fill_size.mul(level_price);
+            filled_size = filled_size.add(fill_size);
+            total_cost = total_cost.add(cost);
+
+            // 更新剩余金额
+            remaining = remaining.sub(cost);
+        } else {
+            // SELL: remaining 是 token 数量
+            const fill_size = if (remaining.compare(level_size) <= 0)
+                remaining
+            else
+                level_size;
+
+            const proceeds = fill_size.mul(level_price);
+            filled_size = filled_size.add(fill_size);
+            total_cost = total_cost.add(proceeds);
+
+            // 更新剩余数量
+            remaining = remaining.sub(fill_size);
+        }
+
+        // 检查是否已完全满足（使用小的阈值处理浮点误差）
+        if (remaining.mantissa <= 0 or remaining.compare(Decimal.fromParts(1, 6)) < 0) {
+            remaining = Decimal.ZERO;
+            break;
+        }
+    }
+
+    // 计算平均价格（使用更安全的方法）
+    var avg_price = Decimal.ZERO;
+    if (filled_size.mantissa > 0) {
+        // 归一化数值以避免溢出
+        const normalized_cost = total_cost.normalize();
+        const normalized_size = filled_size.normalize();
+
+        // 使用较低的精度来避免溢出
+        const scaled_cost = normalized_cost.rescale(6);
+        const scaled_size = normalized_size.rescale(6);
+
+        if (scaled_size.mantissa != 0) {
+            // 直接计算: price = cost / size
+            // 结果精度为 6 位小数
+            const price_mantissa = @divTrunc(scaled_cost.mantissa * 1_000_000, scaled_size.mantissa);
+            avg_price = Decimal.fromParts(price_mantissa, 6);
+        }
+    }
+
+    return MarketPriceResult{
+        .price = avg_price,
+        .filled_size = filled_size,
+        .total_cost = total_cost,
+        .fully_fillable = remaining.mantissa <= 0,
+    };
+}
+
+/// 验证滑点是否在允许范围内
+///
+/// 参数:
+///   - expected_price: 预期价格
+///   - actual_price: 实际价格
+///   - max_slippage: 最大允许滑点 (例如 0.05 = 5%)
+///   - side: 交易方向
+///
+/// 返回: 如果滑点超限返回错误
+pub fn validateSlippage(
+    expected_price: Decimal,
+    actual_price: Decimal,
+    max_slippage: Decimal,
+    side: Side,
+) CalculatorError!void {
+    // 计算滑点: |actual - expected| / expected
+    const diff = if (actual_price.compare(expected_price) >= 0)
+        actual_price.sub(expected_price)
+    else
+        expected_price.sub(actual_price);
+
+    const slippage = diff.div(expected_price) catch return;
+
+    if (slippage.compare(max_slippage) > 0) {
+        return CalculatorError.SlippageExceeded;
+    }
+
+    // 额外检查: BUY 时实际价格不应高于预期 + 滑点
+    // SELL 时实际价格不应低于预期 - 滑点
+    const allowance = expected_price.mul(max_slippage);
+    switch (side) {
+        .BUY => {
+            const max_price = expected_price.add(allowance);
+            if (actual_price.compare(max_price) > 0) {
+                return CalculatorError.SlippageExceeded;
+            }
+        },
+        .SELL => {
+            const min_price = expected_price.sub(allowance);
+            if (actual_price.compare(min_price) < 0) {
+                return CalculatorError.SlippageExceeded;
+            }
+        },
+    }
+}
+
 // ============================================================================
 // 测试
 // ============================================================================
@@ -295,4 +462,80 @@ test "generateSalt" {
 
     // 两个随机 salt 应该不同
     try std.testing.expect(salt1 != salt2);
+}
+
+test "calculateMarketPrice BUY" {
+    // 模拟订单簿: asks = [0.55: 100, 0.60: 200]
+    // 100 tokens @ 0.55 = 55 USDC
+    // 200 tokens @ 0.60 = 120 USDC
+    // 总计: 300 tokens, 175 USDC
+    var asks = [_]OrderSummary{
+        .{ .price = "0.55", .size = "100" },
+        .{ .price = "0.60", .size = "200" },
+    };
+    const book = OrderBookSummary{
+        .asks = &asks,
+    };
+
+    // 买入 55 USDC，预期全部在 0.55 成交，获得 100 tokens
+    const result1 = try calculateMarketPrice(&book, .BUY, try Decimal.fromString("55"));
+    try std.testing.expect(result1.fully_fillable);
+    // 55 / 0.55 = 100 tokens
+    try std.testing.expectEqual(@as(i128, 100_000_000), result1.filled_size.rescale(6).mantissa);
+
+    // 买入 100 USDC，跨两个价格层级
+    // 第一层: 55 USDC 买 100 tokens
+    // 第二层: 45 USDC 买 75 tokens (45 / 0.60)
+    // 总计: 175 tokens
+    const result2 = try calculateMarketPrice(&book, .BUY, try Decimal.fromString("100"));
+    try std.testing.expect(result2.fully_fillable);
+    try std.testing.expect(result2.filled_size.mantissa > 0);
+}
+
+test "calculateMarketPrice SELL" {
+    // 模拟订单簿: bids = [0.50: 100, 0.45: 200]
+    var bids = [_]OrderSummary{
+        .{ .price = "0.50", .size = "100" },
+        .{ .price = "0.45", .size = "200" },
+    };
+    const book = OrderBookSummary{
+        .bids = &bids,
+    };
+
+    // 卖出 50 tokens，预期全部在 0.50 成交
+    const result1 = try calculateMarketPrice(&book, .SELL, try Decimal.fromString("50"));
+    try std.testing.expect(result1.fully_fillable);
+    // 50 * 0.50 = 25 USDC
+    try std.testing.expectEqual(@as(i128, 25_000_000), result1.total_cost.rescale(6).mantissa);
+}
+
+test "calculateMarketPrice insufficient liquidity" {
+    const empty_book = OrderBookSummary{};
+
+    // 没有订单应该返回错误
+    try std.testing.expectError(
+        CalculatorError.InsufficientLiquidity,
+        calculateMarketPrice(&empty_book, .BUY, try Decimal.fromString("100")),
+    );
+}
+
+test "validateSlippage within limit" {
+    const expected = try Decimal.fromString("0.50");
+    const actual = try Decimal.fromString("0.52");
+    const max_slippage = try Decimal.fromString("0.05"); // 5%
+
+    // 4% 滑点，应该通过
+    try validateSlippage(expected, actual, max_slippage, .BUY);
+}
+
+test "validateSlippage exceeded" {
+    const expected = try Decimal.fromString("0.50");
+    const actual = try Decimal.fromString("0.60");
+    const max_slippage = try Decimal.fromString("0.05"); // 5%
+
+    // 20% 滑点，应该失败
+    try std.testing.expectError(
+        CalculatorError.SlippageExceeded,
+        validateSlippage(expected, actual, max_slippage, .BUY),
+    );
 }

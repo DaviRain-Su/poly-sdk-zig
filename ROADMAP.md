@@ -14,8 +14,8 @@
 
 ## 当前状态
 
-**版本**: v0.2.0 (认证与订单)  
-**阶段**: v0.2 - ✅ 已完成
+**版本**: v0.3.0 (Builder、RFQ 与扩展)  
+**阶段**: v0.3 - 🔨 进行中
 
 ---
 
@@ -160,7 +160,7 @@ try client.postOrder(order, .gtc);
 | 端点 | 方法 | 状态 |
 |------|------|------|
 | `POST /order` | `postOrder()` | ✅ |
-| `POST /orders` | `postOrders()` | ⏳ |
+| `POST /orders` | `postOrders()` | ✅ |
 | `GET /data/orders` | `getOpenOrders()` | ✅ |
 | `GET /data/order/{id}` | `getOrder()` | ✅ |
 | `DELETE /order` | `cancelOrder()` | ✅ |
@@ -184,18 +184,19 @@ try client.postOrder(order, .gtc);
 |------|------|------|
 | 限价单 (GTC) | Good Till Cancelled | ✅ |
 | 限价单 (GTD) | Good Till Date | ✅ |
-| 市价单 (FOK) | Fill Or Kill | ⏳ |
-| 市价单 (FAK) | Fill And Kill | ⏳ |
+| 市价单 (FOK) | Fill Or Kill | ✅ |
+| 市价单 (FAK) | Fill And Kill | ✅ |
 
 ### 便捷方法
 
 | 方法 | 描述 | 状态 |
 |------|------|------|
 | `createOrder()` | 创建限价单 | ✅ |
-| `createMarketOrder()` | 创建市价单 | ⏳ |
+| `createMarketOrder()` | 创建市价单 | ✅ |
 | `createAndPostOrder()` | 创建并发布限价单 | ✅ |
-| `createAndPostMarketOrder()` | 创建并发布市价单 | ⏳ |
-| `calculateMarketPrice()` | 计算市价 | ⏳ |
+| `createAndPostMarketOrder()` | 创建并发布市价单 | ✅ |
+| `calculateMarketPrice()` | 计算市价 | ✅ |
+| `postOrders()` | 批量发布订单 | ✅ |
 
 ### 签名类型支持
 
@@ -262,7 +263,7 @@ const quotes = try client.rfq.getRfqQuotes(.{ .request_id = request.request_id }
 
 | 端点 | 方法 | 状态 | 说明 |
 |------|------|------|------|
-| `POST /v1/heartbeats` | `postHeartbeat()` | ⏳ | 10秒内不发送会取消所有订单 |
+| `POST /v1/heartbeats` | `postHeartbeat()` | ✅ | 10秒内不发送会取消所有订单 |
 
 ---
 
@@ -373,3 +374,4 @@ try ws.subscribeTrades(token_id, onTrade);
 | 2024-12-31 | v0.2-l2-auth 完成：L2Auth、HMAC-SHA256 签名、Base64 编码 |
 | 2024-12-31 | v0.2-order-builder 完成：OrderBuilder、限价单创建、金额计算、EIP-712 签名 |
 | 2024-12-31 | v0.2-orders 完成：订单发布/查询/取消、交易历史、余额查询、L2 认证集成 |
+| 2024-12-31 | v0.3 开始：市价单(FOK/FAK)、批量订单(postOrders)、Heartbeat 端点 |

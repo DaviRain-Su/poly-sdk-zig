@@ -145,14 +145,34 @@ pub const OrderArgs = struct {
 pub const MarketOrderArgs = struct {
     /// Token ID
     token_id: []const u8,
-    /// 金额 (USDC)
+    /// 金额 (BUY: USDC 金额, SELL: token 数量)
     amount: Decimal,
     /// 交易方向
     side: Side,
     /// 费率 (基点，可选)
     fee_rate_bps: u16 = 0,
-    /// 最大滑点 (可选，默认无限制)
+    /// 最大滑点 (可选，默认无限制，例如 0.05 = 5%)
     max_slippage: ?Decimal = null,
+    /// 指定价格 (可选，不指定则自动计算)
+    price: ?Decimal = null,
+    /// 过期时间 (Unix 时间戳，可选)
+    expiration: u64 = 0,
+    /// Nonce (可选)
+    nonce: u64 = 0,
+    /// 接单者地址 (可选)
+    taker: ?[20]u8 = null,
+};
+
+/// 市价单选项
+pub const MarketOrderOptions = struct {
+    /// 订单有效期类型 (FOK 或 FAK)
+    time_in_force: TimeInForce = .FOK,
+    /// 价格精度
+    tick_size: TickSize = .@"0.01",
+    /// 是否为 Neg Risk 市场
+    neg_risk: bool = false,
+    /// 签名类型
+    signature_type: SignatureType = .EOA,
 };
 
 /// 创建订单选项

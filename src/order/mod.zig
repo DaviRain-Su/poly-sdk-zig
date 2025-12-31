@@ -51,6 +51,7 @@ pub const TickSize = types.TickSize;
 pub const TimeInForce = types.TimeInForce;
 pub const OrderArgs = types.OrderArgs;
 pub const MarketOrderArgs = types.MarketOrderArgs;
+pub const MarketOrderOptions = types.MarketOrderOptions;
 pub const CreateOrderOptions = types.CreateOrderOptions;
 pub const SignedOrder = types.SignedOrder;
 
@@ -62,8 +63,11 @@ pub const CT_UNIT = types.CT_UNIT;
 
 // 计算器
 pub const CalculatorError = calculator.CalculatorError;
+pub const MarketPriceResult = calculator.MarketPriceResult;
 pub const calculateMakerAmount = calculator.calculateMakerAmount;
 pub const calculateTakerAmount = calculator.calculateTakerAmount;
+pub const calculateMarketPrice = calculator.calculateMarketPrice;
+pub const validateSlippage = calculator.validateSlippage;
 pub const decimalToU256 = calculator.decimalToU256;
 pub const u256ToDecimal = calculator.u256ToDecimal;
 pub const roundToTickSize = calculator.roundToTickSize;

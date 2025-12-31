@@ -33,9 +33,16 @@ const calculator = @import("calculator.zig");
 const Side = types.Side;
 const SignatureType = types.SignatureType;
 const TickSize = types.TickSize;
+const TimeInForce = types.TimeInForce;
 const OrderArgs = types.OrderArgs;
+const MarketOrderArgs = types.MarketOrderArgs;
+const MarketOrderOptions = types.MarketOrderOptions;
 const CreateOrderOptions = types.CreateOrderOptions;
 const SignedOrder = types.SignedOrder;
+
+// 导入订单簿类型
+const clob_types = @import("../clob/types/mod.zig");
+const OrderBookSummary = clob_types.OrderBookSummary;
 
 /// 订单构建器错误
 pub const OrderBuilderError = error{
@@ -49,6 +56,12 @@ pub const OrderBuilderError = error{
     SigningFailed,
     /// 数值溢出
     Overflow,
+    /// 订单簿深度不足
+    InsufficientLiquidity,
+    /// 滑点超限
+    SlippageExceeded,
+    /// 无效的 TimeInForce (市价单只支持 FOK/FAK)
+    InvalidTimeInForce,
 };
 
 /// 订单构建器选项
@@ -161,6 +174,140 @@ pub const OrderBuilder = struct {
     /// 获取钱包地址
     pub fn getAddress(self: *const Self) [20]u8 {
         return self.wallet.address_bytes;
+    }
+
+    /// 创建市价单
+    ///
+    /// 根据订单簿深度计算最优价格并创建订单。
+    /// 市价单使用 FOK 或 FAK 类型。
+    ///
+    /// 参数:
+    ///   - args: 市价单参数
+    ///   - order_book: 订单簿摘要（用于计算价格）
+    ///   - options: 市价单选项
+    ///
+    /// 返回: 签名后的订单
+    pub fn createMarketOrder(
+        self: *const Self,
+        args: MarketOrderArgs,
+        order_book: *const OrderBookSummary,
+        options: MarketOrderOptions,
+    ) OrderBuilderError!SignedOrder {
+        return self.createMarketOrderWithSalt(args, order_book, options, calculator.generateSalt());
+    }
+
+    /// 创建市价单（使用指定 salt，用于测试）
+    pub fn createMarketOrderWithSalt(
+        self: *const Self,
+        args: MarketOrderArgs,
+        order_book: *const OrderBookSummary,
+        options: MarketOrderOptions,
+        salt: u256,
+    ) OrderBuilderError!SignedOrder {
+        // 验证 TimeInForce（市价单只支持 FOK/FAK）
+        switch (options.time_in_force) {
+            .FOK, .FAK => {},
+            .GTC, .GTD => return OrderBuilderError.InvalidTimeInForce,
+        }
+
+        // 验证数量
+        calculator.validateSize(args.amount) catch {
+            return OrderBuilderError.InvalidSize;
+        };
+
+        // 计算市价
+        const price = if (args.price) |p|
+            p
+        else blk: {
+            const result = calculator.calculateMarketPrice(order_book, args.side, args.amount) catch {
+                return OrderBuilderError.InsufficientLiquidity;
+            };
+
+            if (!result.fully_fillable and options.time_in_force == .FOK) {
+                // FOK 需要完全成交
+                return OrderBuilderError.InsufficientLiquidity;
+            }
+
+            // 验证滑点
+            if (args.max_slippage) |max_slip| {
+                // 使用中间价作为预期价格（简化处理）
+                const mid_price = if (order_book.bids != null and order_book.asks != null) blk2: {
+                    const bids = order_book.bids.?;
+                    const asks = order_book.asks.?;
+                    if (bids.len > 0 and asks.len > 0) {
+                        const best_bid = Decimal.fromString(bids[0].price) catch break :blk2 result.price;
+                        const best_ask = Decimal.fromString(asks[0].price) catch break :blk2 result.price;
+                        break :blk2 best_bid.add(best_ask).div(Decimal.fromParts(2, 0)) catch result.price;
+                    }
+                    break :blk2 result.price;
+                } else result.price;
+
+                calculator.validateSlippage(mid_price, result.price, max_slip, args.side) catch {
+                    return OrderBuilderError.SlippageExceeded;
+                };
+            }
+
+            break :blk result.price;
+        };
+
+        // 验证价格
+        calculator.validatePrice(price) catch {
+            return OrderBuilderError.InvalidPrice;
+        };
+
+        // 舍入价格到 tick size
+        const rounded_price = calculator.roundToTickSize(price, options.tick_size);
+
+        // 解析 token ID
+        const token_id = calculator.parseTokenId(args.token_id) catch {
+            return OrderBuilderError.InvalidTokenId;
+        };
+
+        // 计算 size（对于市价单，需要根据金额和价格计算）
+        const size = switch (args.side) {
+            .BUY => args.amount.div(rounded_price) catch return OrderBuilderError.Overflow,
+            .SELL => args.amount,
+        };
+
+        // 计算金额
+        const maker_amount = calculator.calculateMakerAmount(args.side, size, rounded_price) catch {
+            return OrderBuilderError.Overflow;
+        };
+        const taker_amount = calculator.calculateTakerAmount(args.side, size, rounded_price) catch {
+            return OrderBuilderError.Overflow;
+        };
+
+        // 获取地址
+        const maker = self.wallet.address_bytes;
+        const signer = maker;
+        const taker = args.taker orelse SignedOrder.ZERO_ADDRESS;
+
+        // 构建订单
+        var order = SignedOrder{
+            .salt = salt,
+            .maker = maker,
+            .signer = signer,
+            .taker = taker,
+            .token_id = token_id,
+            .maker_amount = maker_amount,
+            .taker_amount = taker_amount,
+            .expiration = args.expiration,
+            .nonce = args.nonce,
+            .fee_rate_bps = args.fee_rate_bps,
+            .side = args.side,
+            .signature_type = options.signature_type,
+            .signature = undefined,
+        };
+
+        // 签名订单
+        const eip712_order = order.toEip712Order();
+        const digest = eip712.hashPolymarketOrder(&eip712_order, self.chain_id, options.neg_risk);
+
+        order.signature = self.wallet.sign(&digest) catch {
+            return OrderBuilderError.SigningFailed;
+        };
+
+        return order;
     }
 };
 
@@ -353,4 +500,117 @@ test "OrderBuilder different chain produces different signature" {
 
     // 签名应该不同（因为链 ID 不同）
     try std.testing.expect(!std.mem.eql(u8, &order1.signature.r, &order2.signature.r));
+}
+
+test "OrderBuilder.createMarketOrderWithSalt FOK" {
+    const wallet = try Wallet.fromPrivateKeyHex("0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
+    const builder = OrderBuilder.init(&wallet, .{ .chain_id = 137 });
+
+    // 模拟订单簿
+    var asks = [_]clob_types.OrderSummary{
+        .{ .price = "0.55", .size = "100" },
+        .{ .price = "0.60", .size = "200" },
+    };
+    const book = OrderBookSummary{
+        .asks = &asks,
+    };
+
+    // 创建市价买单: 55 USDC，预期价格 0.55
+    const order = try builder.createMarketOrderWithSalt(.{
+        .token_id = "123456789",
+        .amount = try Decimal.fromString("55"),
+        .side = .BUY,
+    }, &book, .{
+        .time_in_force = .FOK,
+        .tick_size = .@"0.01",
+    }, 12345);
+
+    // 验证基本字段
+    try std.testing.expectEqual(@as(u256, 12345), order.salt);
+    try std.testing.expectEqual(@as(u256, 123456789), order.token_id);
+    try std.testing.expectEqual(Side.BUY, order.side);
+}
+
+test "OrderBuilder.createMarketOrderWithSalt FAK" {
+    const wallet = try Wallet.fromPrivateKeyHex("0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
+    const builder = OrderBuilder.init(&wallet, .{ .chain_id = 137 });
+
+    // 模拟订单簿
+    var bids = [_]clob_types.OrderSummary{
+        .{ .price = "0.50", .size = "100" },
+        .{ .price = "0.45", .size = "200" },
+    };
+    const book = OrderBookSummary{
+        .bids = &bids,
+    };
+
+    // 创建市价卖单: 50 tokens
+    const order = try builder.createMarketOrderWithSalt(.{
+        .token_id = "123456789",
+        .amount = try Decimal.fromString("50"),
+        .side = .SELL,
+    }, &book, .{
+        .time_in_force = .FAK,
+        .tick_size = .@"0.01",
+    }, 54321);
+
+    try std.testing.expectEqual(@as(u256, 54321), order.salt);
+    try std.testing.expectEqual(Side.SELL, order.side);
+}
+
+test "OrderBuilder.createMarketOrderWithSalt with explicit price" {
+    const wallet = try Wallet.fromPrivateKeyHex("0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
+    const builder = OrderBuilder.init(&wallet, .{ .chain_id = 137 });
+
+    // 使用显式价格，不需要订单簿
+    const empty_book = OrderBookSummary{};
+
+    const order = try builder.createMarketOrderWithSalt(.{
+        .token_id = "123456789",
+        .amount = try Decimal.fromString("100"),
+        .side = .BUY,
+        .price = try Decimal.fromString("0.55"), // 显式指定价格
+    }, &empty_book, .{
+        .time_in_force = .FOK,
+    }, 99999);
+
+    try std.testing.expectEqual(@as(u256, 99999), order.salt);
+}
+
+test "OrderBuilder.createMarketOrderWithSalt invalid TimeInForce" {
+    const wallet = try Wallet.fromPrivateKeyHex("0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
+    const builder = OrderBuilder.init(&wallet, .{ .chain_id = 137 });
+
+    const empty_book = OrderBookSummary{};
+
+    // GTC 不是有效的市价单类型
+    const result = builder.createMarketOrderWithSalt(.{
+        .token_id = "123",
+        .amount = try Decimal.fromString("100"),
+        .side = .BUY,
+        .price = try Decimal.fromString("0.5"),
+    }, &empty_book, .{
+        .time_in_force = .GTC, // 无效
+    }, 1);
+
+    try std.testing.expectError(OrderBuilderError.InvalidTimeInForce, result);
+}
+
+test "OrderBuilder.createMarketOrderWithSalt insufficient liquidity" {
+    const wallet = try Wallet.fromPrivateKeyHex("0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
+    const builder = OrderBuilder.init(&wallet, .{ .chain_id = 137 });
+
+    // 空订单簿
+    const empty_book = OrderBookSummary{};
+
+    const result = builder.createMarketOrderWithSalt(.{
+        .token_id = "123",
+        .amount = try Decimal.fromString("100"),
+        .side = .BUY,
+        // 没有指定价格，需要从订单簿计算
+    }, &empty_book, .{
+        .time_in_force = .FOK,
+    }, 1);
+
+    try std.testing.expectError(OrderBuilderError.InsufficientLiquidity, result);
 }
