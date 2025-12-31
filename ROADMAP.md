@@ -14,8 +14,8 @@
 
 ## 当前状态
 
-**版本**: v0.0.0 (预发布)  
-**阶段**: v0.1 - 核心基础
+**版本**: v0.1.0 (核心基础)  
+**阶段**: v0.1 - ✅ 已完成
 
 ---
 
@@ -38,7 +38,7 @@ const book = try client.getOrderBook(token_id);
 | [v0.1-types](./stories/v0.1-types.md) | ✅ 已完成 | - |
 | [v0.1-error](./stories/v0.1-error.md) | ✅ 已完成 | - |
 | [v0.1-http](./stories/v0.1-http.md) | ✅ 已完成 | v0.1-error |
-| [v0.1-public-api](./stories/v0.1-public-api.md) | ⏳ 待开始 | v0.1-http, v0.1-types |
+| [v0.1-public-api](./stories/v0.1-public-api.md) | ✅ 已完成 | v0.1-http, v0.1-types |
 
 ### 核心类型
 
@@ -100,8 +100,8 @@ const book = try client.getOrderBook(token_id);
 - [x] types/mod.zig 模块导出
 - [x] 错误类型实现（40+ 错误，14 tests）
 - [x] HTTP 客户端实现（14 tests）
-- [ ] 合约配置类型
-- [ ] 公共 API 端点
+- [x] CLOB 客户端实现（12 个端点，18 tests）
+- [x] **v0.1 完成！** 102 个测试通过
 
 ---
 

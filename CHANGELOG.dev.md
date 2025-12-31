@@ -9,8 +9,8 @@
 ### Session 2024-12-31-005
 
 **日期**: 2024-12-31  
-**时长**: ~60 分钟  
-**目标**: 完成 v0.1-types、v0.1-error、v0.1-http Stories
+**时长**: ~90 分钟  
+**目标**: 完成 v0.1 所有 Stories
 
 #### 完成的工作
 
@@ -38,8 +38,6 @@
 - HTTP 状态码映射 (`fromHttpStatus`)
 - 错误描述 (`describe`)
 - 重试判断 (`isRetryable`)
-- `ErrorContext` 上下文结构
-- `ResultWithContext` 泛型
 - 14 个测试通过
 
 ##### 3. v0.1-http Story 完成
@@ -48,12 +46,28 @@
 - `HttpClient` 带 base URL 配置
 - GET/POST/DELETE 方法
 - JSON 请求/响应处理
-- 错误响应解析和映射
 - `buildQueryString` 查询字符串构建
-- 12 个测试通过
+- 14 个测试通过
 
-**http/mod.zig 模块**
-- 统一导出 HTTP 模块
+##### 4. v0.1-public-api Story 完成
+
+**CLOB 类型** (`src/clob/types/`)
+- enums.zig - OrderType, Side, TickSize 等枚举
+- market.zig - Market, Token, SimplifiedMarket 类型
+- book.zig - OrderBookSummary, PriceResponse 等类型
+- 11 个测试通过
+
+**CLOB 客户端** (`src/clob/client.zig`)
+- `ClobClient` 结构
+- 12 个公共 API 端点：
+  - getOk, getServerTime
+  - getMarkets, getSimplifiedMarkets, getMarket
+  - getOrderBook, getPrice, getMidpoint
+  - getSpread, getTickSize, getNegRisk, getLastTradePrice
+- 5 个测试通过
+
+**clob/mod.zig 模块**
+- 统一导出 CLOB 模块
 - 2 个测试通过
 
 #### 测试结果
@@ -61,6 +75,9 @@
 ```bash
 $ zig build test
 # 所有测试通过
+
+$ zig test src/root.zig
+# All 102 tests passed
 ```
 
 | 模块 | 测试数 |
@@ -73,19 +90,27 @@ $ zig build test
 | error.zig | 14 |
 | http/client.zig | 12 |
 | http/mod.zig | 2 |
+| clob/types/*.zig | 11 |
+| clob/client.zig | 5 |
+| clob/mod.zig | 2 |
 | root.zig | 2 |
-| **总计** | **84** |
+| **总计** | **102** |
 
-#### Stories 完成情况
+#### v0.1 完成！🎉
 
-- ✅ v0.1-types - 核心类型（54 tests）
-- ✅ v0.1-error - 错误类型（14 tests）
-- ✅ v0.1-http - HTTP 客户端（14 tests）
-- ⏳ v0.1-public-api - 待开始
+所有 Stories 已完成：
+- ✅ v0.1-types - 核心类型
+- ✅ v0.1-error - 错误类型
+- ✅ v0.1-http - HTTP 客户端
+- ✅ v0.1-public-api - 公共 API 端点
 
 #### 下一步
 
-- [ ] 实现 v0.1-public-api Story（公共 API 端点）
+- [ ] v0.2-crypto - 加密模块 (secp256k1, keccak256, HMAC)
+- [ ] v0.2-signer - 钱包签名器
+- [ ] v0.2-l1-auth - L1 认证 (EIP-712)
+- [ ] v0.2-l2-auth - L2 认证 (HMAC)
+- [ ] v0.2-orders - 订单管理
 
 ---
 

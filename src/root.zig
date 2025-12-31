@@ -8,26 +8,29 @@
 //! ```zig
 //! const poly = @import("poly-sdk-zig");
 //!
-//! // Use core types
-//! const price = try poly.types.Decimal.fromString("0.65");
-//! const wallet = try poly.types.Address.fromHex("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
-//!
-//! // Create HTTP client
-//! var client = poly.http.HttpClient.init(allocator, .{
-//!     .base_url = "https://clob.polymarket.com",
-//! });
+//! // Create CLOB client
+//! var client = poly.ClobClient.init(allocator, .{});
 //! defer client.deinit();
 //!
-//! // Make API request
-//! const response = try client.get("/markets", .{});
-//! defer response.deinit();
+//! // Check server status
+//! const ok = try client.getOk();
+//! defer client.freeOkResponse(&ok);
+//!
+//! // Get markets
+//! const markets = try client.getMarkets(.{});
+//! defer markets.deinit();
+//!
+//! // Use core types
+//! const price = try poly.Decimal.fromString("0.65");
+//! const wallet = try poly.Address.fromHex("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
 //! ```
 //!
 //! ## Modules
 //!
+//! - `clob`: CLOB API client and types
 //! - `types`: Core types (Decimal, Address, UUID, Secret)
 //! - `errors`: Error types and utilities
-//! - `http`: HTTP client for API requests
+//! - `http`: HTTP client utilities
 //!
 //! ## Design Principles
 //!
@@ -38,6 +41,9 @@
 
 const std = @import("std");
 
+/// CLOB API client module
+pub const clob = @import("clob/mod.zig");
+
 /// Core types module
 pub const types = @import("types/mod.zig");
 
@@ -46,6 +52,9 @@ pub const errors = @import("error.zig");
 
 /// HTTP client module
 pub const http = @import("http/mod.zig");
+
+// Re-export CLOB client at root level for convenience
+pub const ClobClient = clob.ClobClient;
 
 // Re-export commonly used types at root level for convenience
 pub const Decimal = types.Decimal;
@@ -78,9 +87,13 @@ test "root module exports" {
 
     // Verify HTTP types are accessible
     _ = HttpClient;
+
+    // Verify CLOB client is accessible
+    _ = ClobClient;
 }
 
 test "all submodules" {
+    _ = @import("clob/mod.zig");
     _ = @import("types/mod.zig");
     _ = @import("error.zig");
     _ = @import("http/mod.zig");
