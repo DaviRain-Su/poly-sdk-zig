@@ -6,19 +6,64 @@
 
 | 文件 | 描述 | 需要认证 |
 |------|------|----------|
-| `basic_types.zig` | 基础类型使用（Decimal, Secret） | 否 |
-| `read_only.zig` | 只读 API（市场、价格、订单簿） | 否 |
-| `trading.zig` | 下单和管理订单 | 是 |
+| `basic_types.zig` | 基础类型使用（Decimal, Secret, Address, UUID） | 否 |
+| `public_api.zig` | 公共 API（市场、价格、订单簿） | 否 |
+| `authentication.zig` | L1/L2 认证流程 | 是 |
+| `order_management.zig` | 订单创建、发布和管理 | 是 |
+| `websocket.zig` | WebSocket 实时数据订阅 | 部分 |
+
+## 示例说明
+
+### basic_types.zig
+
+演示核心类型的使用：
+- `Decimal` - 高精度十进制数字
+- `Secret` - 敏感数据包装器
+- `Address` - 以太坊地址（EIP-55 校验和）
+- `UUID` - v4 UUID 生成
+
+### public_api.zig
+
+演示无需认证的公共端点：
+- 服务器状态检查
+- 市场列表查询
+- 订单簿获取
+- 价格、中间价、价差查询
+- 批量端点使用
+
+### authentication.zig
+
+演示认证流程：
+- L1 认证（钱包签名）
+- API Key 创建和派生
+- L2 认证（HMAC 签名）
+- 认证请求示例
+
+### order_management.zig
+
+演示订单管理：
+- 创建限价单和市价单
+- 发布订单
+- 查询订单状态
+- 取消订单
+- 批量订单操作
+
+### websocket.zig
+
+演示 WebSocket 实时数据：
+- Market Channel（公开市场数据）
+- User Channel（用户私有数据）
+- 消息解析和处理
+- 回调函数配置
 
 ## 运行示例
 
-```bash
-# 编译并运行示例
-zig build-exe examples/basic_types.zig -I src
-./basic_types
+示例文件是独立的教学文档，主要用于展示 API 用法。它们包含详细的代码说明和注释。
 
-# 或使用 zig run
-zig run examples/basic_types.zig -I src
+```bash
+# 查看示例代码了解 API 使用方法
+cat examples/public_api.zig
+cat examples/websocket.zig
 ```
 
 ## 配置
@@ -31,13 +76,20 @@ cp .env.example .env
 
 # 编辑 .env 填入你的配置
 # POLYGON_WALLET_PRIVATE_KEY=你的私钥
+# POLY_API_KEY=你的 API Key
+# POLY_API_SECRET=你的 API Secret
+# POLY_API_PASSPHRASE=你的 Passphrase
 ```
 
 ## 注意事项
 
-⚠️ **重要**：这些示例仅供学习使用。在生产环境中：
+1. **安全**: 永远不要硬编码私钥或 API 凭证
+2. **测试网**: 建议先在测试网验证逻辑
+3. **小额测试**: 正式交易前先用小额测试
+4. **服务条款**: 了解 [Polymarket 服务条款](https://polymarket.com/tos)
 
-- 永远不要硬编码私钥
-- 使用安全的密钥管理
-- 从小额交易开始测试
-- 了解 [Polymarket 服务条款](https://polymarket.com/tos)
+## 更多资源
+
+- [API 文档](../docs/README.md)
+- [类型定义](../docs/design/types.md)
+- [WebSocket 文档](../docs/ws/README.md)

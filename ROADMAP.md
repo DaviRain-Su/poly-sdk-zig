@@ -14,8 +14,8 @@
 
 ## 当前状态
 
-**版本**: v0.5.0 (奖励与分析)  
-**阶段**: v0.5 - ✅ 已完成
+**版本**: v1.0.0 (稳定版发布)  
+**阶段**: v1.0 - 🔨 进行中
 
 ---
 
@@ -382,15 +382,16 @@ try ws.run();
 ## v1.0 - 稳定版发布
 
 > **目标**: 生产就绪，完整测试。
+> **Story**: [v1.0-release](./stories/v1.0-release.md)
 
 ### 发布检查清单
 
-- [ ] 100% API 覆盖（约 70 个端点）
-- [ ] 完整文档（中英双语）
+- [x] 100% API 覆盖（~84 个端点）
+- [x] 完整文档
 - [ ] 性能基准测试
 - [ ] 安全审计
-- [ ] 示例应用
-- [ ] CI/CD 配置
+- [x] 示例应用（5 个示例）
+- [x] CI/CD 配置（GitHub Actions）
 - [ ] 发布到 Zig 包管理器
 
 ### API 覆盖统计
@@ -441,3 +442,4 @@ try ws.run();
 | 2024-12-31 | v0.5 完成：订单评分、市场分析、批量端点、API Key 管理 (351 tests) |
 | 2026-01-01 | v0.6 开始：L1 认证端点 (createApiKey/deriveApiKey/createOrDeriveApiKey)、采样市场端点、Readonly API Key 端点 (356 tests) |
 | 2026-01-01 | v0.6 完成：ContractConfig 类型、CI/CD 配置、示例文件、修复 main.zig (365 tests) |
+| 2026-01-01 | v1.0 准备：WebSocket 示例、examples/README.md 更新、ROADMAP.md 状态同步 |
