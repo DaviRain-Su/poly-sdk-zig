@@ -121,7 +121,6 @@ src/
 //! defer client.deinit();
 //!
 //! const ok = try client.ok();
-//! ```
 
 const std = @import("std");
 
