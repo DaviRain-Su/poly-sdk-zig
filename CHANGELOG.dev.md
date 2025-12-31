@@ -6,6 +6,70 @@
 
 ## 会话记录
 
+### Session 2024-12-31-008
+
+**日期**: 2024-12-31  
+**时长**: ~30 分钟  
+**目标**: 完成 v0.2-signer Story
+
+#### 完成的工作
+
+##### 1. 创建模块导出 (`src/signer/mod.zig`)
+
+- 统一导出 wallet 和 eip712 子模块
+- 便捷类型别名 (Wallet, WalletError, Domain, Order 等)
+- 便捷函数导出 (hashPolymarketOrder, createPolymarketDomain 等)
+- 2 个集成测试
+
+##### 2. 更新 root.zig
+
+- 添加 signer 模块导出
+- 添加便捷类型导出 (Wallet, WalletError)
+- 更新模块文档注释
+- 更新测试以包含 signer 模块
+
+##### 3. 修复 API 兼容性问题
+
+- 修复 `Wallet.getAddress()` 调用 `Address.fromBytes()` 参数类型
+- 修复 `Wallet.getAddressHex()` 改为 `getAddressChecksumHex()` 返回 `[42]u8`
+- 修复 Secret 类型格式化使用 `{f}` 而非 `{any}`
+
+##### 4. 创建文档
+
+- `docs/signer/README.md` - 模块概述
+- `docs/signer/wallet.md` - Wallet 类型详细文档
+- `docs/signer/eip712.md` - EIP-712 签名详细文档
+
+#### 测试结果
+
+```bash
+$ zig build test
+All 168 tests passed.
+```
+
+| 模块 | 测试数 |
+|------|--------|
+| signer/wallet.zig | 10 |
+| signer/eip712.zig | 15 |
+| signer/mod.zig | 2 |
+| **signer 总计** | **27** |
+
+#### v0.2-signer 完成！✅
+
+所有任务已完成：
+- [x] Wallet 类型（私钥/公钥/地址管理）
+- [x] EIP-191 个人消息签名
+- [x] EIP-712 类型化数据签名
+- [x] Polymarket 订单签名
+- [x] 合约地址常量（主网/测试网）
+- [x] 完整文档
+
+#### 下一步
+
+- [ ] v0.2-l1-auth - L1 认证, API Key 创建/派生
+
+---
+
 ### Session 2024-12-31-007
 
 **日期**: 2024-12-31  

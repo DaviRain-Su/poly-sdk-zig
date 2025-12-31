@@ -30,6 +30,7 @@
 //! - `clob`: CLOB API client and types
 //! - `types`: Core types (Decimal, Address, UUID, Secret)
 //! - `crypto`: Cryptographic primitives (Keccak256, ECDSA, HMAC)
+//! - `signer`: Wallet and EIP-712 signing utilities
 //! - `errors`: Error types and utilities
 //! - `http`: HTTP client utilities
 //!
@@ -57,6 +58,9 @@ pub const http = @import("http/mod.zig");
 /// Cryptographic primitives module
 pub const crypto = @import("crypto/mod.zig");
 
+/// Signer module (Wallet, EIP-712)
+pub const signer = @import("signer/mod.zig");
+
 // Re-export CLOB client at root level for convenience
 pub const ClobClient = clob.ClobClient;
 
@@ -80,6 +84,10 @@ pub const PublicKey = crypto.PublicKey;
 pub const Signature = crypto.Signature;
 pub const keccak256 = crypto.keccak256;
 pub const hmacSha256 = crypto.hmacSha256;
+
+// Re-export signer types
+pub const Wallet = signer.Wallet;
+pub const WalletError = signer.WalletError;
 
 // ============================================================================
 // Tests
@@ -105,6 +113,11 @@ test "root module exports" {
     // Verify crypto types are accessible
     const hash = keccak256("test");
     try std.testing.expectEqual(@as(usize, 32), hash.len);
+
+    // Verify signer types are accessible
+    const wallet = try Wallet.fromPrivateKeyHex("0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
+    var addr_buf: [42]u8 = undefined;
+    _ = wallet.getAddressLowerHex(&addr_buf);
 }
 
 test "all submodules" {
@@ -113,4 +126,5 @@ test "all submodules" {
     _ = @import("error.zig");
     _ = @import("http/mod.zig");
     _ = @import("crypto/mod.zig");
+    _ = @import("signer/mod.zig");
 }

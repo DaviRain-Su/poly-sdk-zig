@@ -131,7 +131,7 @@ try client.postOrder(order, .gtc);
 | Story | 状态 | 描述 | 依赖 |
 |-------|------|------|------|
 | [v0.2-crypto](./stories/v0.2-crypto.md) | ✅ 已完成 | Keccak256, secp256k1, HMAC-SHA256 | v0.1-types |
-| [v0.2-signer](./stories/v0.2-signer.md) | ⏳ 待开始 | Wallet, EIP-712 签名 | v0.2-crypto |
+| [v0.2-signer](./stories/v0.2-signer.md) | ✅ 已完成 | Wallet, EIP-712 签名 | v0.2-crypto |
 | [v0.2-l1-auth](./stories/v0.2-l1-auth.md) | ⏳ 待开始 | L1 认证, API Key 创建/派生 | v0.2-signer |
 | [v0.2-l2-auth](./stories/v0.2-l2-auth.md) | ⏳ 待开始 | L2 认证, HMAC 请求签名 | v0.2-l1-auth |
 | [v0.2-order-builder](./stories/v0.2-order-builder.md) | ⏳ 待开始 | 订单构建器, 限价单/市价单 | v0.2-signer |
@@ -368,3 +368,4 @@ try ws.subscribeTrades(token_id, onTrade);
 | 2024-12-31 | 添加 RFQ 端点、合约配置、类型定义、Header 类型、签名类型说明 |
 | 2024-12-31 | 完善 v0.3 RFQ 和 Builder 端点详情 |
 | 2024-12-31 | Address 和 UUID 类型实现完成，v0.1-types Story 完成 |
+| 2024-12-31 | v0.2-signer 完成：Wallet 类型、EIP-712 订单签名、Polymarket 合约地址 |
