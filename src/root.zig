@@ -71,6 +71,9 @@ pub const order = @import("order/mod.zig");
 /// RFQ (Request for Quote) module
 pub const rfq = @import("rfq/mod.zig");
 
+/// WebSocket module
+pub const ws = @import("ws/mod.zig");
+
 // Re-export CLOB client at root level for convenience
 pub const ClobClient = clob.ClobClient;
 
@@ -133,6 +136,16 @@ pub const ApproveRfqOrderParams = rfq.ApproveRfqOrderParams;
 pub const GetRfqRequestsParams = rfq.GetRfqRequestsParams;
 pub const GetRfqQuotesParams = rfq.GetRfqQuotesParams;
 pub const RfqConfig = rfq.RfqConfig;
+
+// Re-export WebSocket types
+pub const WebSocketClient = ws.WebSocketClient;
+pub const WebSocketError = ws.WebSocketError;
+pub const ConnectionState = ws.ConnectionState;
+pub const WsEndpoints = ws.Endpoints;
+pub const BookMessage = ws.BookMessage;
+pub const PriceChangeMessage = ws.PriceChangeMessage;
+pub const WsOrderMessage = ws.OrderMessage;
+pub const WsTradeMessage = ws.TradeMessage;
 
 // ============================================================================
 // Tests
@@ -219,6 +232,7 @@ test "all submodules" {
     _ = @import("auth/mod.zig");
     _ = @import("order/mod.zig");
     _ = @import("rfq/mod.zig");
+    _ = @import("ws/mod.zig");
 }
 
 test "rfq module exports" {
@@ -257,4 +271,35 @@ test "rfq module exports" {
         .enabled = true,
     };
     try std.testing.expect(config.enabled);
+}
+
+test "ws module exports" {
+    // Verify WebSocket types are accessible
+    _ = WebSocketClient;
+    _ = WebSocketError;
+    _ = ConnectionState;
+
+    // Test endpoints
+    try std.testing.expectEqualStrings(
+        "wss://ws-subscriptions-clob.polymarket.com/ws/market",
+        WsEndpoints.marketUrl(),
+    );
+    try std.testing.expectEqualStrings(
+        "wss://ws-subscriptions-clob.polymarket.com/ws/user",
+        WsEndpoints.userUrl(),
+    );
+
+    // Test message types
+    const book = BookMessage{
+        .asset_id = "test",
+        .market = "0x123",
+        .bids = &.{},
+        .asks = &.{},
+        .timestamp = "123456",
+    };
+    try std.testing.expectEqualStrings("test", book.asset_id);
+
+    // Test channel type
+    try std.testing.expectEqualStrings("market", ws.ChannelType.market.toString());
+    try std.testing.expectEqualStrings("user", ws.ChannelType.user.toString());
 }

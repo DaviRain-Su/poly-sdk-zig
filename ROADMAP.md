@@ -14,8 +14,8 @@
 
 ## 当前状态
 
-**版本**: v0.3.0 (Builder、RFQ 与扩展)  
-**阶段**: v0.3 - ✅ 已完成
+**版本**: v0.4.0 (WebSocket)  
+**阶段**: v0.4 - ✅ 已完成
 
 ---
 
@@ -271,21 +271,63 @@ const quotes = try client.rfq.getRfqQuotes(.{ .request_id = request.request_id }
 
 > **目标**: 实时数据订阅。
 > **交付物**: 实时价格和订单更新。
+> **端点**: `wss://ws-subscriptions-clob.polymarket.com/ws/`
 
 ```zig
-var ws = try poly.WebSocket.connect(allocator, .{});
-try ws.subscribeOrderBook(token_id, onUpdate);
-try ws.subscribeTrades(token_id, onTrade);
+// Market Channel（公开数据）
+var ws = try poly.WebSocket.initMarket(allocator, .{
+    .on_book = onBookUpdate,
+    .on_price_change = onPriceChange,
+});
+try ws.subscribe(&.{ token_id });
+try ws.run();
+
+// User Channel（需要认证）
+var ws = try poly.WebSocket.initUser(allocator, .{
+    .api_key = api_key,
+    .api_secret = api_secret,
+    .api_passphrase = api_passphrase,
+    .on_order = onOrderUpdate,
+    .on_trade = onTradeUpdate,
+});
+try ws.subscribeMarkets(&.{ condition_id });
+try ws.run();
 ```
 
-### WebSocket 订阅
+### Stories
 
-| 频道 | 描述 | 状态 |
+| Story | 状态 | 描述 |
+|-------|------|------|
+| [v0.4-websocket](./stories/v0.4-websocket.md) | ✅ 已完成 | WebSocket 客户端实现 |
+
+### Market Channel (公开)
+
+| 消息类型 | 描述 | 状态 |
+|---------|------|------|
+| `book` | 订单簿快照 | ✅ |
+| `price_change` | 价格层级变化 | ✅ |
+| `last_trade_price` | 最新成交价 | ✅ |
+| `best_bid_ask` | 最佳买卖价 | ✅ |
+| `tick_size_change` | 最小价格间隔变化 | ✅ |
+
+### User Channel (需认证)
+
+| 消息类型 | 描述 | 状态 |
+|---------|------|------|
+| `order` | 订单状态 (PLACEMENT/UPDATE/CANCELLATION) | ✅ |
+| `trade` | 交易状态 (MATCHED/MINED/CONFIRMED/FAILED) | ✅ |
+
+### 功能
+
+| 功能 | 描述 | 状态 |
 |------|------|------|
-| 订单簿 | 实时订单簿更新 | ⏳ |
-| 交易 | 实时成交 | ⏳ |
-| 用户订单 | 用户订单状态 | ⏳ |
-| 用户交易 | 用户成交 | ⏳ |
+| 连接管理 | 建立/关闭 WebSocket 连接 | ✅ |
+| 心跳机制 | 每 10 秒 PING 保持连接 | ✅ |
+| 自动重连 | 断线后自动重连 | ✅ |
+| 动态订阅 | 订阅/取消订阅资产 | ✅ |
+| 消息解析 | 解析所有消息类型 | ✅ |
+| MarketChannel | 高级 Market 包装器 | ✅ |
+| UserChannel | 高级 User 包装器 | ✅ |
 
 ---
 
@@ -342,7 +384,7 @@ try ws.subscribeTrades(token_id, onTrade);
 | v0.1 | 公共 API (L0) | ~20 | ✅ 完成 |
 | v0.2 | 认证与订单 (L1/L2) | ~25 | ✅ 完成 |
 | v0.3 | Builder + RFQ | ~25 | ✅ 完成 |
-| v0.4 | WebSocket | ~4 | ⏳ 待开始 |
+| v0.4 | WebSocket | ~4 | ✅ 完成 |
 | v0.5 | 奖励 + 分析 | ~10 | ⏳ 待开始 |
 | **总计** | | **~84** | |
 
@@ -377,3 +419,6 @@ try ws.subscribeTrades(token_id, onTrade);
 | 2024-12-31 | v0.3 开始：市价单(FOK/FAK)、批量订单(postOrders)、Heartbeat 端点 |
 | 2024-12-31 | v0.3 Builder：Builder 认证、API Key 管理、Builder 交易历史 (20 tests) |
 | 2024-12-31 | v0.3 RFQ：RFQ 子客户端、10 个 RFQ 端点、类型定义、集成到 ClobClient (303 tests) |
+| 2024-12-31 | v0.4 开始：WebSocket Story 创建，研究 Polymarket WebSocket API |
+| 2024-12-31 | v0.4 WebSocket 基础模块：types.zig、client.zig、mod.zig (320 tests) |
+| 2024-12-31 | v0.4 完成：消息解析器、MarketChannel、UserChannel、文档 (343 tests) |
