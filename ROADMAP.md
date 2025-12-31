@@ -3,10 +3,14 @@
 这是项目规划的唯一真相来源。所有工作都从这里派生。
 
 **参考实现**:
-- [py-clob-client](https://github.com/Polymarket/py-clob-client) - Python 客户端
-- [clob-client](https://github.com/Polymarket/clob-client) - TypeScript 客户端
+- [py-clob-client](https://github.com/Polymarket/py-clob-client) - Python 客户端 (v0.34.1)
+- [clob-client](https://github.com/Polymarket/clob-client) - TypeScript 客户端 (v5.1.3)
+- [agents](https://github.com/Polymarket/agents) - AI 交易代理框架
 
-**API 覆盖分析**: [docs/design/api-coverage.md](./docs/design/api-coverage.md)
+**设计文档**:
+- [API 覆盖分析](./docs/design/api-coverage.md) - 完整 API 对比
+- [合约配置](./docs/design/contracts.md) - Polygon 合约地址
+- [类型定义](./docs/design/types.md) - 详细类型定义
 
 ## 当前状态
 
@@ -19,6 +23,7 @@
 
 > **目标**: 基础类型、HTTP 客户端和只读公共 API (L0)。
 > **交付物**: 无需认证即可查询市场数据。
+> **端点数量**: ~20 个
 
 ```zig
 var client = try poly.Client.init(allocator, .{});
@@ -35,15 +40,39 @@ const book = try client.getOrderBook(token_id);
 | [v0.1-http](./stories/v0.1-http.md) | ⏳ 待开始 | v0.1-error |
 | [v0.1-public-api](./stories/v0.1-public-api.md) | ⏳ 待开始 | v0.1-http, v0.1-types |
 
-### 公共端点 (L0)
+### 核心类型
+
+| 类型 | 文件 | 状态 | 测试 |
+|------|------|------|------|
+| Decimal | `src/types/decimal.zig` | ✅ 完成 | 10 tests |
+| Secret | `src/types/secret.zig` | ✅ 完成 | 8 tests |
+| Address | `src/types/address.zig` | ⏳ 待开始 | - |
+| UUID | `src/types/uuid.zig` | ⏳ 待开始 | - |
+| ContractConfig | `src/types/contracts.zig` | ⏳ 待开始 | - |
+
+### 公共端点 (L0 - 无需认证)
+
+#### 服务器状态
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
 | `GET /` | `getOk()` | ⏳ |
 | `GET /time` | `getServerTime()` | ⏳ |
+
+#### 市场数据
+
+| 端点 | 方法 | 状态 |
+|------|------|------|
 | `GET /markets` | `getMarkets()` | ⏳ |
 | `GET /simplified-markets` | `getSimplifiedMarkets()` | ⏳ |
-| `GET /markets/{id}` | `getMarket()` | ⏳ |
+| `GET /sampling-markets` | `getSamplingMarkets()` | ⏳ |
+| `GET /sampling-simplified-markets` | `getSamplingSimplifiedMarkets()` | ⏳ |
+| `GET /markets/{condition_id}` | `getMarket()` | ⏳ |
+
+#### 价格和订单簿
+
+| 端点 | 方法 | 状态 |
+|------|------|------|
 | `GET /book` | `getOrderBook()` | ⏳ |
 | `POST /books` | `getOrderBooks()` | ⏳ |
 | `GET /midpoint` | `getMidpoint()` | ⏳ |
@@ -63,7 +92,10 @@ const book = try client.getOrderBook(token_id);
 - [x] 项目设置 (build.zig, 结构)
 - [x] Decimal 类型实现
 - [x] Secret 类型实现
+- [x] 文档体系建立
+- [x] API 覆盖分析完成
 - [ ] Address, UUID 类型
+- [ ] 合约配置类型
 - [ ] 错误类型
 - [ ] HTTP 客户端
 - [ ] 公共 API 端点
@@ -74,6 +106,7 @@ const book = try client.getOrderBook(token_id);
 
 > **目标**: L1/L2 认证和订单管理。
 > **交付物**: 创建、发布和管理订单。
+> **端点数量**: ~25 个
 
 ```zig
 // L1: 创建 API 凭证
@@ -95,7 +128,7 @@ try client.postOrder(order, .gtc);
 | Story | 状态 | 描述 |
 |-------|------|------|
 | v0.2-crypto | ⏳ 待开始 | secp256k1, keccak256, HMAC-SHA256 |
-| v0.2-signer | ⏳ 待开始 | 钱包签名器 |
+| v0.2-signer | ⏳ 待开始 | 钱包签名器, EIP-55 |
 | v0.2-l1-auth | ⏳ 待开始 | EIP-712 签名, L1 headers |
 | v0.2-l2-auth | ⏳ 待开始 | HMAC 请求签名, L2 headers |
 | v0.2-order-builder | ⏳ 待开始 | 订单构建器 |
@@ -111,21 +144,34 @@ try client.postOrder(order, .gtc);
 
 ### L2 认证端点
 
+#### API Key 管理
+
 | 端点 | 方法 | 状态 |
 |------|------|------|
 | `GET /auth/api-keys` | `getApiKeys()` | ⏳ |
 | `DELETE /auth/api-key` | `deleteApiKey()` | ⏳ |
+| `GET /auth/ban-status/closed-only` | `getClosedOnlyMode()` | ⏳ |
+
+#### 订单管理
+
+| 端点 | 方法 | 状态 |
+|------|------|------|
 | `POST /order` | `postOrder()` | ⏳ |
 | `POST /orders` | `postOrders()` | ⏳ |
-| `GET /orders` | `getOpenOrders()` | ⏳ |
-| `GET /order/{id}` | `getOrder()` | ⏳ |
+| `GET /data/orders` | `getOpenOrders()` | ⏳ |
+| `GET /data/order/{id}` | `getOrder()` | ⏳ |
 | `DELETE /order` | `cancelOrder()` | ⏳ |
 | `DELETE /orders` | `cancelOrders()` | ⏳ |
 | `DELETE /cancel-all` | `cancelAll()` | ⏳ |
 | `DELETE /cancel-market-orders` | `cancelMarketOrders()` | ⏳ |
-| `GET /trades` | `getTrades()` | ⏳ |
+
+#### 交易和账户
+
+| 端点 | 方法 | 状态 |
+|------|------|------|
+| `GET /data/trades` | `getTrades()` | ⏳ |
 | `GET /balance-allowance` | `getBalanceAllowance()` | ⏳ |
-| `GET /update-balance-allowance` | `updateBalanceAllowance()` | ⏳ |
+| `GET /balance-allowance/update` | `updateBalanceAllowance()` | ⏳ |
 | `GET /notifications` | `getNotifications()` | ⏳ |
 | `DELETE /notifications` | `dropNotifications()` | ⏳ |
 
@@ -148,28 +194,42 @@ try client.postOrder(order, .gtc);
 | `createAndPostMarketOrder()` | 创建并发布市价单 | ⏳ |
 | `calculateMarketPrice()` | 计算市价 | ⏳ |
 
+### 签名类型支持
+
+| 类型 | 值 | 描述 | 状态 |
+|------|---|------|------|
+| EOA | 0 | MetaMask, 硬件钱包 | ⏳ |
+| POLY_PROXY | 1 | Email/Magic 钱包 | ⏳ |
+| POLY_GNOSIS_SAFE | 2 | 浏览器钱包代理 | ⏳ |
+
 ---
 
-## v0.3 - Builder 与扩展
+## v0.3 - Builder、RFQ 与扩展
 
-> **目标**: Builder 程序、RFQ 和高级功能。
-> **交付物**: 做市商支持。
+> **目标**: Builder 程序、RFQ 询价系统和高级功能。
+> **交付物**: 做市商支持、大宗交易询价。
+> **端点数量**: ~25 个
 
 ```zig
+// Builder 模式
 var client = try poly.Client.init(allocator, .{
     .builder_config = builder_config,
 });
 const trades = try client.getBuilderTrades(.{});
+
+// RFQ 模式
+const request = try client.rfq.createRfqRequest(order, .{});
+const quotes = try client.rfq.getRfqQuotes(.{ .request_id = request.request_id });
 ```
 
 ### Builder 端点
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| `GET /builder-trades` | `getBuilderTrades()` | ⏳ |
 | `POST /auth/builder-api-key` | `createBuilderApiKey()` | ⏳ |
-| `GET /auth/builder-api-keys` | `getBuilderApiKeys()` | ⏳ |
+| `GET /auth/builder-api-key` | `getBuilderApiKeys()` | ⏳ |
 | `DELETE /auth/builder-api-key` | `revokeBuilderApiKey()` | ⏳ |
+| `GET /builder/trades` | `getBuilderTrades()` | ⏳ |
 
 ### Readonly API Key
 
@@ -178,15 +238,28 @@ const trades = try client.getBuilderTrades(.{});
 | `POST /auth/readonly-api-key` | `createReadonlyApiKey()` | ⏳ |
 | `GET /auth/readonly-api-keys` | `getReadonlyApiKeys()` | ⏳ |
 | `DELETE /auth/readonly-api-key` | `deleteReadonlyApiKey()` | ⏳ |
-| `GET /readonly-api-key/validate` | `validateReadonlyApiKey()` | ⏳ |
+| `GET /auth/validate-readonly-api-key` | `validateReadonlyApiKey()` | ⏳ |
 
-### 其他功能
+### RFQ (Request for Quote) 端点
 
-| 功能 | 描述 | 状态 |
+| 端点 | 方法 | 状态 |
 |------|------|------|
-| RFQ 客户端 | Request for Quote | ⏳ |
-| Heartbeat | 保持订单有效性 | ⏳ |
-| 订单评分 | 订单质量评估 | ⏳ |
+| `POST /rfq/request` | `rfq.createRfqRequest()` | ⏳ |
+| `DELETE /rfq/request` | `rfq.cancelRfqRequest()` | ⏳ |
+| `GET /rfq/data/requests` | `rfq.getRfqRequests()` | ⏳ |
+| `POST /rfq/quote` | `rfq.createRfqQuote()` | ⏳ |
+| `DELETE /rfq/quote` | `rfq.cancelRfqQuote()` | ⏳ |
+| `GET /rfq/data/quotes` | `rfq.getRfqQuotes()` | ⏳ |
+| `GET /rfq/data/best-quote` | `rfq.getRfqBestQuote()` | ⏳ |
+| `POST /rfq/request/accept` | `rfq.acceptRfqQuote()` | ⏳ |
+| `POST /rfq/quote/approve` | `rfq.approveRfqOrder()` | ⏳ |
+| `GET /rfq/config` | `rfq.rfqConfig()` | ⏳ |
+
+### Heartbeat
+
+| 端点 | 方法 | 状态 | 说明 |
+|------|------|------|------|
+| `POST /v1/heartbeats` | `postHeartbeat()` | ⏳ | 10秒内不发送会取消所有订单 |
 
 ---
 
@@ -198,31 +271,49 @@ const trades = try client.getBuilderTrades(.{});
 ```zig
 var ws = try poly.WebSocket.connect(allocator, .{});
 try ws.subscribeOrderBook(token_id, onUpdate);
+try ws.subscribeTrades(token_id, onTrade);
 ```
+
+### WebSocket 订阅
+
+| 频道 | 描述 | 状态 |
+|------|------|------|
+| 订单簿 | 实时订单簿更新 | ⏳ |
+| 交易 | 实时成交 | ⏳ |
+| 用户订单 | 用户订单状态 | ⏳ |
+| 用户交易 | 用户成交 | ⏳ |
 
 ---
 
 ## v0.5 - 奖励与分析
 
 > **目标**: 流动性奖励和市场分析。
+> **端点数量**: ~10 个
 
 ### 奖励端点
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| 用户收益 | `getEarningsForUserForDay()` | ⏳ |
-| 总收益 | `getTotalEarningsForUserForDay()` | ⏳ |
-| 奖励百分比 | `getRewardPercentages()` | ⏳ |
-| 当前奖励 | `getCurrentRewards()` | ⏳ |
-| 市场奖励 | `getRawRewardsForMarket()` | ⏳ |
+| `GET /rewards/user` | `getEarningsForUserForDay()` | ⏳ |
+| `GET /rewards/user/total` | `getTotalEarningsForUserForDay()` | ⏳ |
+| `GET /rewards/user/percentages` | `getRewardPercentages()` | ⏳ |
+| `GET /rewards/markets/current` | `getCurrentRewards()` | ⏳ |
+| `GET /rewards/markets/{conditionId}` | `getRawRewardsForMarket()` | ⏳ |
+| `GET /rewards/user/markets` | `getUserEarningsAndMarketsConfig()` | ⏳ |
 
 ### 市场分析
 
 | 端点 | 方法 | 状态 |
 |------|------|------|
-| 价格历史 | `getPricesHistory()` | ⏳ |
-| 市场交易事件 | `getMarketTradesEvents()` | ⏳ |
-| 采样市场 | `getSamplingMarkets()` | ⏳ |
+| `GET /prices-history` | `getPricesHistory()` | ⏳ |
+| `GET /live-activity/events/{condition_id}` | `getMarketTradesEvents()` | ⏳ |
+
+### 订单评分
+
+| 端点 | 方法 | 状态 |
+|------|------|------|
+| `GET /order-scoring` | `isOrderScoring()` | ⏳ |
+| `POST /orders-scoring` | `areOrdersScoring()` | ⏳ |
 
 ---
 
@@ -230,11 +321,26 @@ try ws.subscribeOrderBook(token_id, onUpdate);
 
 > **目标**: 生产就绪，完整测试。
 
-- [ ] 100% API 覆盖
-- [ ] 完整文档
+### 发布检查清单
+
+- [ ] 100% API 覆盖（约 70 个端点）
+- [ ] 完整文档（中英双语）
 - [ ] 性能基准测试
 - [ ] 安全审计
 - [ ] 示例应用
+- [ ] CI/CD 配置
+- [ ] 发布到 Zig 包管理器
+
+### API 覆盖统计
+
+| 版本 | 功能 | 端点数量 | 状态 |
+|------|------|----------|------|
+| v0.1 | 公共 API (L0) | ~20 | 🔨 进行中 |
+| v0.2 | 认证与订单 (L1/L2) | ~25 | ⏳ 待开始 |
+| v0.3 | Builder + RFQ | ~25 | ⏳ 待开始 |
+| v0.4 | WebSocket | ~4 | ⏳ 待开始 |
+| v0.5 | 奖励 + 分析 | ~10 | ⏳ 待开始 |
+| **总计** | | **~84** | |
 
 ---
 
@@ -256,3 +362,5 @@ try ws.subscribeOrderBook(token_id, onUpdate);
 | 2024-12-31 | 初始 ROADMAP，创建 v0.1 stories |
 | 2024-12-31 | Secret 类型实现完成 |
 | 2024-12-31 | 根据官方客户端分析扩展 ROADMAP，覆盖完整 API |
+| 2024-12-31 | 添加 RFQ 端点、合约配置、类型定义、Header 类型、签名类型说明 |
+| 2024-12-31 | 完善 v0.3 RFQ 和 Builder 端点详情 |
