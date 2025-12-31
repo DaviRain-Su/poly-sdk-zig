@@ -9,77 +9,82 @@
 ### Session 2024-12-31-005
 
 **日期**: 2024-12-31  
-**时长**: ~30 分钟  
-**目标**: 完成 v0.1-types Story - 实现 Address 和 UUID 类型
+**时长**: ~60 分钟  
+**目标**: 完成 v0.1-types、v0.1-error、v0.1-http Stories
 
 #### 完成的工作
 
-1. **实现 Address 类型** (`src/types/address.zig`)
-   - 20 字节以太坊地址存储
-   - `fromHex()` 解析（支持带/不带 0x 前缀）
-   - `fromHexUnchecked()` 跳过校验和验证
-   - `fromBytes()`, `fromSlice()` 从原始字节创建
-   - EIP-55 校验和生成 (`toChecksumHex()`)
-   - EIP-55 校验和验证（混合大小写时自动验证）
-   - `toLowerHex()` 小写输出
-   - JSON 序列化支持
-   - `isZero()`, `eql()`, `compare()` 方法
-   - 15 个测试全部通过
+##### 1. v0.1-types Story 完成
 
-2. **实现 UUID 类型** (`src/types/uuid.zig`)
-   - 16 字节 UUID 存储
-   - `fromString()` 解析（支持带/不带连字符）
-   - `v4()` 生成随机 UUID v4
-   - `v4WithRandom()` 使用指定随机源
-   - `toString()` 标准格式输出
-   - `toCompactString()` 紧凑格式输出
-   - `getVersion()`, `getVariant()` 获取 UUID 元信息
-   - JSON 序列化支持
-   - `isNil()`, `eql()`, `compare()` 方法
-   - 15 个测试全部通过
+**Address 类型** (`src/types/address.zig`)
+- 20 字节以太坊地址存储
+- `fromHex()` 解析（支持带/不带 0x 前缀）
+- EIP-55 校验和生成和验证
+- 15 个测试通过
 
-3. **创建 types/mod.zig 模块**
-   - 统一导出所有类型模块
-   - 提供便捷类型别名
-   - 类型互操作示例测试
-   - 6 个测试通过
+**UUID 类型** (`src/types/uuid.zig`)
+- 16 字节 UUID 存储
+- `v4()` 生成随机 UUID v4
+- 15 个测试通过
 
-4. **更新 root.zig**
-   - 导出 types 模块
-   - 根级别便捷类型别名
-   - 模块文档
+**types/mod.zig 模块**
+- 统一导出所有类型
+- 6 个测试通过
+
+##### 2. v0.1-error Story 完成
+
+**错误类型** (`src/error.zig`)
+- 6 类 40+ 错误枚举
+- HTTP 状态码映射 (`fromHttpStatus`)
+- 错误描述 (`describe`)
+- 重试判断 (`isRetryable`)
+- `ErrorContext` 上下文结构
+- `ResultWithContext` 泛型
+- 14 个测试通过
+
+##### 3. v0.1-http Story 完成
+
+**HTTP 客户端** (`src/http/client.zig`)
+- `HttpClient` 带 base URL 配置
+- GET/POST/DELETE 方法
+- JSON 请求/响应处理
+- 错误响应解析和映射
+- `buildQueryString` 查询字符串构建
+- 12 个测试通过
+
+**http/mod.zig 模块**
+- 统一导出 HTTP 模块
+- 2 个测试通过
 
 #### 测试结果
 
 ```bash
 $ zig build test
 # 所有测试通过
-
-$ zig test src/types/mod.zig
-# All 54 tests passed
 ```
 
 | 模块 | 测试数 |
 |------|--------|
-| decimal.zig | 10 |
-| address.zig | 15 |
-| uuid.zig | 15 |
-| secret.zig | 8 |
-| mod.zig | 6 |
-| **总计** | **54** |
+| types/decimal.zig | 10 |
+| types/address.zig | 15 |
+| types/uuid.zig | 15 |
+| types/secret.zig | 8 |
+| types/mod.zig | 6 |
+| error.zig | 14 |
+| http/client.zig | 12 |
+| http/mod.zig | 2 |
+| root.zig | 2 |
+| **总计** | **84** |
 
-#### v0.1-types Story 完成！
+#### Stories 完成情况
 
-所有核心类型已实现：
-- ✅ Decimal - 金融精度计算
-- ✅ Address - 以太坊地址（EIP-55）
-- ✅ UUID - 通用唯一标识符
-- ✅ Secret - 敏感数据保护
+- ✅ v0.1-types - 核心类型（54 tests）
+- ✅ v0.1-error - 错误类型（14 tests）
+- ✅ v0.1-http - HTTP 客户端（14 tests）
+- ⏳ v0.1-public-api - 待开始
 
 #### 下一步
 
-- [ ] 实现 v0.1-error Story（错误类型）
-- [ ] 实现 v0.1-http Story（HTTP 客户端）
 - [ ] 实现 v0.1-public-api Story（公共 API 端点）
 
 ---
@@ -374,16 +379,18 @@ $ zig test src/types/mod.zig
 | Secret | `src/types/secret.zig` | ✅ 8 tests | ✅ |
 | Address | `src/types/address.zig` | ✅ 15 tests | ✅ |
 | UUID | `src/types/uuid.zig` | ✅ 15 tests | ✅ |
-| mod.zig | `src/types/mod.zig` | ✅ 6 tests | ✅ |
+| types/mod.zig | `src/types/mod.zig` | ✅ 6 tests | ✅ |
+| Error | `src/error.zig` | ✅ 14 tests | ⏳ |
+| HttpClient | `src/http/client.zig` | ✅ 12 tests | ⏳ |
+| http/mod.zig | `src/http/mod.zig` | ✅ 2 tests | ⏳ |
 
-**总测试数**: 54 个测试通过
+**总测试数**: 84 个测试通过
 
 ### 待实现
 
 | 模块 | 文件 | 优先级 |
 |------|------|--------|
-| Error | `src/error.zig` | 高 |
-| HTTP | `src/http/` | 高 |
+| Public API | `src/api/` | 高 |
 | ContractConfig | `src/types/contracts.zig` | 中 |
 
 ### 测试命令
@@ -391,6 +398,9 @@ $ zig test src/types/mod.zig
 ```bash
 # 运行所有类型测试
 zig test src/types/mod.zig
+
+# 运行 HTTP 模块测试
+zig test src/http/mod.zig
 
 # 运行完整测试套件
 zig build test
@@ -456,20 +466,20 @@ Zig 版本: 0.15.2
 
 ## 当前状态
 
-### v0.1-types Story ✅ 已完成
-- ✅ Decimal 类型（10 tests）
-- ✅ Secret 类型（8 tests）
-- ✅ Address 类型（15 tests）- EIP-55 校验和
-- ✅ UUID 类型（15 tests）- v4 随机生成
-- ✅ mod.zig 模块导出（6 tests）
-- 总计: 54 个测试通过
+### 已完成 Stories
+- ✅ v0.1-types（54 tests）- Decimal, Address, UUID, Secret
+- ✅ v0.1-error（14 tests）- 错误类型、HTTP 状态映射
+- ✅ v0.1-http（14 tests）- HTTP 客户端
 
-### 下一步 Stories
-- ⏳ v0.1-error - 错误类型定义
-- ⏳ v0.1-http - HTTP 客户端
-- ⏳ v0.1-public-api - 公共 API 端点
+### 总测试数: 84 个测试通过
+
+### 下一步 Story
+- ⏳ v0.1-public-api - 公共 API 端点实现
 
 ## 下一步工作
 
-实现 v0.1-error Story（错误类型），然后 v0.1-http Story。
+实现 v0.1-public-api Story：
+1. 创建 Polymarket CLOB API 客户端
+2. 实现公共端点（getMarkets, getOrderBook, etc.）
+3. 定义 API 响应类型
 ```

@@ -36,8 +36,8 @@ const book = try client.getOrderBook(token_id);
 | Story | 状态 | 依赖 |
 |-------|------|------|
 | [v0.1-types](./stories/v0.1-types.md) | ✅ 已完成 | - |
-| [v0.1-error](./stories/v0.1-error.md) | ⏳ 待开始 | - |
-| [v0.1-http](./stories/v0.1-http.md) | ⏳ 待开始 | v0.1-error |
+| [v0.1-error](./stories/v0.1-error.md) | ✅ 已完成 | - |
+| [v0.1-http](./stories/v0.1-http.md) | ✅ 已完成 | v0.1-error |
 | [v0.1-public-api](./stories/v0.1-public-api.md) | ⏳ 待开始 | v0.1-http, v0.1-types |
 
 ### 核心类型
@@ -98,9 +98,9 @@ const book = try client.getOrderBook(token_id);
 - [x] Address 类型实现（EIP-55 校验和）
 - [x] UUID 类型实现（v4 随机生成）
 - [x] types/mod.zig 模块导出
+- [x] 错误类型实现（40+ 错误，14 tests）
+- [x] HTTP 客户端实现（14 tests）
 - [ ] 合约配置类型
-- [ ] 错误类型
-- [ ] HTTP 客户端
 - [ ] 公共 API 端点
 
 ---
