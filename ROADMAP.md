@@ -15,7 +15,7 @@
 ## 当前状态
 
 **版本**: v0.1.0 (核心基础)  
-**阶段**: v0.1 - ✅ 已完成
+**阶段**: v0.2 - 🔨 进行中
 
 ---
 
@@ -126,16 +126,16 @@ const order = try client.createOrder(.{
 try client.postOrder(order, .gtc);
 ```
 
-### Stories (计划中)
+### Stories
 
-| Story | 状态 | 描述 |
-|-------|------|------|
-| v0.2-crypto | ⏳ 待开始 | secp256k1, keccak256, HMAC-SHA256 |
-| v0.2-signer | ⏳ 待开始 | 钱包签名器, EIP-55 |
-| v0.2-l1-auth | ⏳ 待开始 | EIP-712 签名, L1 headers |
-| v0.2-l2-auth | ⏳ 待开始 | HMAC 请求签名, L2 headers |
-| v0.2-order-builder | ⏳ 待开始 | 订单构建器 |
-| v0.2-orders | ⏳ 待开始 | 订单 CRUD 操作 |
+| Story | 状态 | 描述 | 依赖 |
+|-------|------|------|------|
+| [v0.2-crypto](./stories/v0.2-crypto.md) | ⏳ 待开始 | Keccak256, secp256k1, HMAC-SHA256 | v0.1-types |
+| [v0.2-signer](./stories/v0.2-signer.md) | ⏳ 待开始 | Wallet, EIP-712 签名 | v0.2-crypto |
+| [v0.2-l1-auth](./stories/v0.2-l1-auth.md) | ⏳ 待开始 | L1 认证, API Key 创建/派生 | v0.2-signer |
+| [v0.2-l2-auth](./stories/v0.2-l2-auth.md) | ⏳ 待开始 | L2 认证, HMAC 请求签名 | v0.2-l1-auth |
+| [v0.2-order-builder](./stories/v0.2-order-builder.md) | ⏳ 待开始 | 订单构建器, 限价单/市价单 | v0.2-signer |
+| [v0.2-orders](./stories/v0.2-orders.md) | ⏳ 待开始 | 订单 CRUD, 交易历史, 余额查询 | v0.2-order-builder, v0.2-l2-auth |
 
 ### L1 认证端点
 

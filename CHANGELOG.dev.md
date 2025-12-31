@@ -6,6 +6,90 @@
 
 ## 会话记录
 
+### Session 2024-12-31-006
+
+**日期**: 2024-12-31  
+**时长**: ~20 分钟  
+**目标**: 创建 v0.2 所有 Story 文件
+
+#### 完成的工作
+
+##### 创建 v0.2 Stories (6 个文件)
+
+1. **v0.2-crypto** (`stories/v0.2-crypto.md`)
+   - Keccak256 哈希封装
+   - secp256k1 椭圆曲线签名
+   - HMAC-SHA256 实现
+   - 技术调研和实现选项分析
+
+2. **v0.2-signer** (`stories/v0.2-signer.md`)
+   - Wallet 类型（私钥、公钥、地址）
+   - EIP-712 结构化数据签名
+   - Polymarket 订单签名
+   - 签名类型支持（EOA, POLY_PROXY, POLY_GNOSIS_SAFE）
+
+3. **v0.2-l1-auth** (`stories/v0.2-l1-auth.md`)
+   - L1Auth 认证器
+   - L1 Header 生成（EIP-712 签名）
+   - API Key 创建/派生
+   - ApiCreds 类型
+
+4. **v0.2-l2-auth** (`stories/v0.2-l2-auth.md`)
+   - L2Auth 认证器
+   - HMAC-SHA256 请求签名
+   - L2 Header 生成
+   - HTTP 客户端集成
+
+5. **v0.2-order-builder** (`stories/v0.2-order-builder.md`)
+   - OrderBuilder 订单构建器
+   - 限价单和市价单创建
+   - 金额计算（maker/taker amount）
+   - Salt 生成和订单签名
+
+6. **v0.2-orders** (`stories/v0.2-orders.md`)
+   - 订单发布（单个/批量）
+   - 订单查询和取消
+   - 交易历史查询
+   - 账户余额和通知管理
+
+##### 更新 ROADMAP.md
+
+- 添加 v0.2 Stories 链接和依赖关系
+- 更新当前阶段为 v0.2
+
+#### Story 依赖关系
+
+```
+v0.1-types
+    │
+    ▼
+v0.2-crypto
+    │
+    ▼
+v0.2-signer ─────────────────┐
+    │                        │
+    ▼                        ▼
+v0.2-l1-auth          v0.2-order-builder
+    │                        │
+    ▼                        │
+v0.2-l2-auth ◄───────────────┘
+    │                        │
+    ▼                        ▼
+v0.2-orders ◄────────────────┘
+```
+
+#### 下一步
+
+按依赖顺序实现 v0.2 Stories：
+1. v0.2-crypto - 加密原语
+2. v0.2-signer - 钱包签名
+3. v0.2-l1-auth - L1 认证
+4. v0.2-l2-auth - L2 认证
+5. v0.2-order-builder - 订单构建
+6. v0.2-orders - 订单管理
+
+---
+
 ### Session 2024-12-31-005
 
 **日期**: 2024-12-31  
