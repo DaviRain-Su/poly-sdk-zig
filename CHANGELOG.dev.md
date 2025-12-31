@@ -6,6 +6,84 @@
 
 ## 会话记录
 
+### Session 2024-12-31-009
+
+**日期**: 2024-12-31  
+**时长**: ~40 分钟  
+**目标**: 完成 v0.2-l1-auth Story
+
+#### 完成的工作
+
+##### 1. 创建 API 凭证类型 (`src/auth/api_creds.zig`)
+
+- `ApiCreds` 结构体（api_key, api_secret, api_passphrase）
+- Secret 类型保护敏感字段
+- JSON 解析 (`fromJson`)
+- 安全清零 (`zeroize`)
+- 5 个测试
+
+##### 2. 创建 Header 类型 (`src/auth/headers.zig`)
+
+- `L1PolyHeader` - L1 认证 Header（EIP-712 签名）
+- `L2PolyHeader` - L2 认证 Header（HMAC 签名，框架预留）
+- `toHttpHeaders()` 转换
+- 6 个测试
+
+##### 3. 创建 L1 认证 (`src/auth/l1.zig`)
+
+- `L1Auth` 结构体
+- `generateHeader()` / `generateHeaderWithNonce()` / `generateHeaderFull()`
+- ClobAuth EIP-712 类型定义
+- `computeDigest()` 计算签名摘要
+- `formatSignatureHex()` 签名格式化
+- 10 个测试
+
+##### 4. 创建模块导出 (`src/auth/mod.zig`)
+
+- 统一导出所有 auth 子模块
+- 便捷类型别名
+- 4 个集成测试
+
+##### 5. 更新 root.zig
+
+- 添加 auth 模块导出
+- 添加便捷类型导出 (L1Auth, L1PolyHeader, L2PolyHeader, ApiCreds)
+
+##### 6. 创建文档
+
+- `docs/auth/l1-auth.md` - L1 认证完整文档
+
+#### 测试结果
+
+```bash
+$ zig build test
+All tests passed.
+```
+
+| 模块 | 测试数 |
+|------|--------|
+| auth/api_creds.zig | 5 |
+| auth/headers.zig | 6 |
+| auth/l1.zig | 10 |
+| auth/mod.zig | 4 |
+| **auth 总计** | **25** |
+
+#### v0.2-l1-auth 完成！✅
+
+所有任务已完成：
+- [x] L1Auth 类型
+- [x] L1PolyHeader 类型
+- [x] ApiCreds 类型
+- [x] ClobAuth EIP-712 消息构造
+- [x] Header 生成和格式化
+- [x] 完整文档
+
+#### 下一步
+
+- [ ] v0.2-l2-auth - L2 认证, HMAC 请求签名
+
+---
+
 ### Session 2024-12-31-008
 
 **日期**: 2024-12-31  

@@ -31,6 +31,7 @@
 //! - `types`: Core types (Decimal, Address, UUID, Secret)
 //! - `crypto`: Cryptographic primitives (Keccak256, ECDSA, HMAC)
 //! - `signer`: Wallet and EIP-712 signing utilities
+//! - `auth`: Authentication (L1/L2 auth, API credentials)
 //! - `errors`: Error types and utilities
 //! - `http`: HTTP client utilities
 //!
@@ -61,6 +62,9 @@ pub const crypto = @import("crypto/mod.zig");
 /// Signer module (Wallet, EIP-712)
 pub const signer = @import("signer/mod.zig");
 
+/// Authentication module (L1/L2 auth)
+pub const auth = @import("auth/mod.zig");
+
 // Re-export CLOB client at root level for convenience
 pub const ClobClient = clob.ClobClient;
 
@@ -88,6 +92,12 @@ pub const hmacSha256 = crypto.hmacSha256;
 // Re-export signer types
 pub const Wallet = signer.Wallet;
 pub const WalletError = signer.WalletError;
+
+// Re-export auth types
+pub const L1Auth = auth.L1Auth;
+pub const L1PolyHeader = auth.L1PolyHeader;
+pub const L2PolyHeader = auth.L2PolyHeader;
+pub const ApiCreds = auth.ApiCreds;
 
 // ============================================================================
 // Tests
@@ -118,6 +128,10 @@ test "root module exports" {
     const wallet = try Wallet.fromPrivateKeyHex("0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318");
     var addr_buf: [42]u8 = undefined;
     _ = wallet.getAddressLowerHex(&addr_buf);
+
+    // Verify auth types are accessible
+    const l1 = L1Auth.init(&wallet, .{ .chain_id = 137 });
+    try std.testing.expectEqual(@as(u64, 137), l1.getChainId());
 }
 
 test "all submodules" {
@@ -127,4 +141,5 @@ test "all submodules" {
     _ = @import("http/mod.zig");
     _ = @import("crypto/mod.zig");
     _ = @import("signer/mod.zig");
+    _ = @import("auth/mod.zig");
 }
