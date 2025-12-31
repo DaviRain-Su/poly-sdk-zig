@@ -6,6 +6,137 @@
 
 ## 会话记录
 
+### Session 2024-12-31-012
+
+**日期**: 2024-12-31  
+**时长**: ~45 分钟  
+**目标**: 完成 v0.2-orders Story - 订单 CRUD, 交易历史, 余额查询
+
+#### 完成的工作
+
+##### 1. 订单响应类型 (`src/clob/types/order.zig`)
+
+- `OrderData` - 订单发布请求体
+- `PostOrderRequest` / `PostOrdersRequest` - 发布请求
+- `PostOrderResponse` / `PostOrdersResponse` - 发布响应
+- `OpenOrdersParams` - 查询参数
+- `OpenOrder` - 开放订单类型
+- `PaginatedResponse(T)` - 泛型分页响应
+- `CancelOrderRequest` / `CancelOrdersRequest` - 取消请求
+- `CancelMarketOrdersRequest` - 取消市场订单
+- `CancelOrderResponse` - 取消响应
+- 5 个测试
+
+##### 2. 交易类型 (`src/clob/types/trade.zig`)
+
+- `TradesParams` - 交易查询参数
+- `Trade` - 交易记录类型
+- `PaginatedTrades` - 分页交易响应
+- `UserTradeStats` - 用户交易统计
+- 3 个测试
+
+##### 3. 账户类型 (`src/clob/types/account.zig`)
+
+- `BalanceAllowanceParams` - 余额查询参数
+- `BalanceAllowanceResponse` - 余额响应
+- `ApiKeyInfo` - API Key 信息
+- `DeleteApiKeyResponse` - 删除响应
+- `BanStatusResponse` - 封禁状态
+- `Notification` - 通知类型
+- `DropNotificationsRequest` / `DropNotificationsResponse`
+- 4 个测试
+
+##### 4. ClobClient L2 认证端点 (`src/clob/client.zig`)
+
+**新增初始化方法**:
+- `initWithAuth(allocator, config, wallet, creds)` - 初始化认证客户端
+- `hasAuth()` - 检查认证状态
+
+**HTTP 方法**:
+- `doAuthGet(path)` - 认证 GET 请求
+- `doAuthPost(path, body)` - 认证 POST 请求
+- `doAuthDelete(path, body)` - 认证 DELETE 请求
+
+**订单管理端点**:
+- `postOrder(order, order_type)` - POST /order
+- `getOpenOrders(params)` - GET /data/orders
+- `getOrder(order_id)` - GET /data/order/{id}
+- `cancelOrder(order_id)` - DELETE /order
+- `cancelOrders(order_ids)` - DELETE /orders
+- `cancelAll()` - DELETE /cancel-all
+- `cancelMarketOrders(params)` - DELETE /cancel-market-orders
+
+**交易和账户端点**:
+- `getTrades(params)` - GET /data/trades
+- `getBalanceAllowance(params)` - GET /balance-allowance
+- `getNotifications()` - GET /notifications
+- `dropNotifications(ids)` - DELETE /notifications
+
+**便捷方法**:
+- `createOrder(args, options)` - 使用 OrderBuilder 创建订单
+- `createAndPostOrder(args, options, order_type)` - 创建并发布订单
+
+##### 5. Zig 0.15 HTTP API 适配
+
+修复 Zig 0.15 HTTP Client API:
+- 使用 `http_client.request()` 替代 `fetch()`
+- 使用 `req.sendBodiless()` 发送无体请求
+- 使用 `req.receiveHead()` 接收响应头
+- 使用 `response.reader()` 获取响应体读取器
+- 使用 `reader.allocRemaining()` 读取全部内容
+- 使用 `std.Io.Limit.limited()` 设置读取限制
+
+##### 6. 更新文档和 Story
+
+- 更新 `src/clob/types/mod.zig` 导出新类型
+- 更新 `ROADMAP.md` 标记 v0.2-orders 完成
+
+#### 测试结果
+
+```bash
+$ zig build test
+All tests passed.
+```
+
+| 模块 | 测试数 |
+|------|--------|
+| clob/types/order.zig | 5 |
+| clob/types/trade.zig | 3 |
+| clob/types/account.zig | 4 |
+| clob/client.zig (新增) | 3 |
+| **v0.2-orders 新增** | **15** |
+
+#### v0.2-orders 完成！✅
+
+所有任务已完成：
+- [x] 订单发布 (postOrder)
+- [x] 订单查询 (getOpenOrders, getOrder)
+- [x] 订单取消 (cancelOrder, cancelOrders, cancelAll, cancelMarketOrders)
+- [x] 交易历史 (getTrades)
+- [x] 余额查询 (getBalanceAllowance)
+- [x] 通知管理 (getNotifications, dropNotifications)
+- [x] 便捷方法 (createOrder, createAndPostOrder)
+- [x] L2 认证集成
+- [x] Zig 0.15 HTTP API 适配
+
+#### v0.2 完成！🎉
+
+所有 v0.2 Stories 已完成：
+- ✅ v0.2-crypto (37 tests)
+- ✅ v0.2-signer (27 tests)
+- ✅ v0.2-l1-auth (25 tests)
+- ✅ v0.2-l2-auth (12 tests)
+- ✅ v0.2-order-builder (37 tests)
+- ✅ v0.2-orders (15 tests)
+
+**v0.2 总计: 153 个新测试**
+
+#### 下一步
+
+- [ ] v0.3 - Builder、RFQ 与扩展
+
+---
+
 ### Session 2024-12-31-011
 
 **日期**: 2024-12-31  

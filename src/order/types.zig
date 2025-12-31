@@ -227,6 +227,114 @@ pub const SignedOrder = struct {
     pub fn getSignatureHex(self: *const Self, buffer: *[132]u8) []const u8 {
         return self.signature.toHex(buffer);
     }
+
+    /// 格式化地址为 0x hex 字符串
+    fn formatAddress(bytes: [20]u8, buffer: *[42]u8) void {
+        buffer[0] = '0';
+        buffer[1] = 'x';
+        const hex_chars = "0123456789abcdef";
+        for (bytes, 0..) |byte, i| {
+            buffer[2 + i * 2] = hex_chars[byte >> 4];
+            buffer[2 + i * 2 + 1] = hex_chars[byte & 0x0F];
+        }
+    }
+
+    /// 格式化 u256 为十进制字符串
+    fn formatU256(value: u256, buffer: []u8) []const u8 {
+        if (value == 0) {
+            buffer[0] = '0';
+            return buffer[0..1];
+        }
+
+        var v = value;
+        var len: usize = 0;
+
+        // 计算位数
+        var temp = value;
+        while (temp > 0) : (temp /= 10) {
+            len += 1;
+        }
+
+        // 反向填充
+        var i: usize = len;
+        while (v > 0) : (v /= 10) {
+            i -= 1;
+            buffer[i] = @as(u8, @intCast(v % 10)) + '0';
+        }
+
+        return buffer[0..len];
+    }
+
+    /// 转换为 API 请求格式的 JSON 对象
+    ///
+    /// 返回用于 POST /order 请求的 OrderData 结构。
+    /// 注意：返回的结构引用内部缓冲区，需要立即使用或复制。
+    pub fn toOrderData(self: *const Self, buffers: *OrderDataBuffers) OrderDataView {
+        // 格式化各字段
+        const salt_str = formatU256(self.salt, &buffers.salt);
+        const token_id_str = formatU256(self.token_id, &buffers.token_id);
+        const maker_amount_str = formatU256(self.maker_amount, &buffers.maker_amount);
+        const taker_amount_str = formatU256(self.taker_amount, &buffers.taker_amount);
+        const expiration_str = formatU256(self.expiration, &buffers.expiration);
+        const nonce_str = formatU256(self.nonce, &buffers.nonce);
+        const fee_rate_str = formatU256(self.fee_rate_bps, &buffers.fee_rate_bps);
+
+        formatAddress(self.maker, &buffers.maker);
+        formatAddress(self.signer, &buffers.signer);
+        formatAddress(self.taker, &buffers.taker);
+
+        var sig_buf: [132]u8 = undefined;
+        const sig_hex = self.getSignatureHex(&sig_buf);
+        @memcpy(&buffers.signature, sig_hex);
+
+        return OrderDataView{
+            .salt = salt_str,
+            .maker = &buffers.maker,
+            .signer = &buffers.signer,
+            .taker = &buffers.taker,
+            .tokenId = token_id_str,
+            .makerAmount = maker_amount_str,
+            .takerAmount = taker_amount_str,
+            .expiration = expiration_str,
+            .nonce = nonce_str,
+            .feeRateBps = fee_rate_str,
+            .side = self.side.toString(),
+            .signatureType = @intFromEnum(self.signature_type),
+            .signature = &buffers.signature,
+        };
+    }
+
+    /// OrderData 缓冲区
+    pub const OrderDataBuffers = struct {
+        salt: [78]u8 = undefined, // u256 最大 78 位十进制
+        maker: [42]u8 = undefined,
+        signer: [42]u8 = undefined,
+        taker: [42]u8 = undefined,
+        token_id: [78]u8 = undefined,
+        maker_amount: [78]u8 = undefined,
+        taker_amount: [78]u8 = undefined,
+        expiration: [78]u8 = undefined,
+        nonce: [78]u8 = undefined,
+        fee_rate_bps: [78]u8 = undefined,
+        signature: [132]u8 = undefined,
+    };
+
+    /// OrderData 视图（用于 JSON 序列化）
+    pub const OrderDataView = struct {
+        salt: []const u8,
+        maker: []const u8,
+        signer: []const u8,
+        taker: []const u8,
+        tokenId: []const u8,
+        makerAmount: []const u8,
+        takerAmount: []const u8,
+        expiration: []const u8,
+        nonce: []const u8,
+        feeRateBps: []const u8,
+        side: []const u8,
+        signatureType: u8,
+        signature: []const u8,
+    };
 };
 
 // ============================================================================
@@ -306,4 +414,28 @@ test "constants" {
     try std.testing.expectEqual(@as(u8, 6), USDC_DECIMALS);
     try std.testing.expectEqual(@as(u8, 6), CT_DECIMALS);
     try std.testing.expectEqual(@as(u256, 1_000_000), USDC_UNIT);
+}
+
+test "SignedOrder.formatU256" {
+    var buf: [78]u8 = undefined;
+
+    // 测试 0
+    const zero = SignedOrder.formatU256(0, &buf);
+    try std.testing.expectEqualStrings("0", zero);
+
+    // 测试小数
+    const small = SignedOrder.formatU256(12345, &buf);
+    try std.testing.expectEqualStrings("12345", small);
+
+    // 测试大数
+    const large = SignedOrder.formatU256(100_000_000, &buf);
+    try std.testing.expectEqualStrings("100000000", large);
+}
+
+test "SignedOrder.formatAddress" {
+    var buf: [42]u8 = undefined;
+    const addr: [20]u8 = [_]u8{ 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x12 };
+
+    SignedOrder.formatAddress(addr, &buf);
+    try std.testing.expectEqualStrings("0xabcdef1234567890abcdef1234567890abcdef12", &buf);
 }
