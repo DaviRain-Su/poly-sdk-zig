@@ -26,7 +26,9 @@ docs/
 │       └── 003-secret-type.md
 └── types/                # 镜像 src/types/
     ├── decimal.md        # 对应 src/types/decimal.zig
-    └── secret.md         # 对应 src/types/secret.zig
+    ├── secret.md         # 对应 src/types/secret.zig
+    ├── address.md        # 对应 src/types/address.zig
+    └── uuid.md           # 对应 src/types/uuid.zig
 ```
 
 ## 设计文档
@@ -55,8 +57,9 @@ docs/
 |--------|------|------|
 | `src/types/decimal.zig` | [types/decimal.md](./types/decimal.md) | ✅ |
 | `src/types/secret.zig` | [types/secret.md](./types/secret.md) | ✅ |
-| `src/types/address.zig` | - | ⏳ 未实现 |
-| `src/types/uuid.zig` | - | ⏳ 未实现 |
+| `src/types/address.zig` | [types/address.md](./types/address.md) | ✅ |
+| `src/types/uuid.zig` | [types/uuid.md](./types/uuid.md) | ✅ |
+| `src/types/mod.zig` | - | ✅ |
 | `src/types/contracts.zig` | [design/contracts.md](./design/contracts.md) | ⏳ 未实现 |
 
 ## API 覆盖统计

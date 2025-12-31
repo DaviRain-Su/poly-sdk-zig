@@ -6,6 +6,84 @@
 
 ## 会话记录
 
+### Session 2024-12-31-005
+
+**日期**: 2024-12-31  
+**时长**: ~30 分钟  
+**目标**: 完成 v0.1-types Story - 实现 Address 和 UUID 类型
+
+#### 完成的工作
+
+1. **实现 Address 类型** (`src/types/address.zig`)
+   - 20 字节以太坊地址存储
+   - `fromHex()` 解析（支持带/不带 0x 前缀）
+   - `fromHexUnchecked()` 跳过校验和验证
+   - `fromBytes()`, `fromSlice()` 从原始字节创建
+   - EIP-55 校验和生成 (`toChecksumHex()`)
+   - EIP-55 校验和验证（混合大小写时自动验证）
+   - `toLowerHex()` 小写输出
+   - JSON 序列化支持
+   - `isZero()`, `eql()`, `compare()` 方法
+   - 15 个测试全部通过
+
+2. **实现 UUID 类型** (`src/types/uuid.zig`)
+   - 16 字节 UUID 存储
+   - `fromString()` 解析（支持带/不带连字符）
+   - `v4()` 生成随机 UUID v4
+   - `v4WithRandom()` 使用指定随机源
+   - `toString()` 标准格式输出
+   - `toCompactString()` 紧凑格式输出
+   - `getVersion()`, `getVariant()` 获取 UUID 元信息
+   - JSON 序列化支持
+   - `isNil()`, `eql()`, `compare()` 方法
+   - 15 个测试全部通过
+
+3. **创建 types/mod.zig 模块**
+   - 统一导出所有类型模块
+   - 提供便捷类型别名
+   - 类型互操作示例测试
+   - 6 个测试通过
+
+4. **更新 root.zig**
+   - 导出 types 模块
+   - 根级别便捷类型别名
+   - 模块文档
+
+#### 测试结果
+
+```bash
+$ zig build test
+# 所有测试通过
+
+$ zig test src/types/mod.zig
+# All 54 tests passed
+```
+
+| 模块 | 测试数 |
+|------|--------|
+| decimal.zig | 10 |
+| address.zig | 15 |
+| uuid.zig | 15 |
+| secret.zig | 8 |
+| mod.zig | 6 |
+| **总计** | **54** |
+
+#### v0.1-types Story 完成！
+
+所有核心类型已实现：
+- ✅ Decimal - 金融精度计算
+- ✅ Address - 以太坊地址（EIP-55）
+- ✅ UUID - 通用唯一标识符
+- ✅ Secret - 敏感数据保护
+
+#### 下一步
+
+- [ ] 实现 v0.1-error Story（错误类型）
+- [ ] 实现 v0.1-http Story（HTTP 客户端）
+- [ ] 实现 v0.1-public-api Story（公共 API 端点）
+
+---
+
 ### Session 2024-12-31-004
 
 **日期**: 2024-12-31  
@@ -294,21 +372,28 @@
 |------|------|------|------|
 | Decimal | `src/types/decimal.zig` | ✅ 10 tests | ✅ |
 | Secret | `src/types/secret.zig` | ✅ 8 tests | ✅ |
+| Address | `src/types/address.zig` | ✅ 15 tests | ✅ |
+| UUID | `src/types/uuid.zig` | ✅ 15 tests | ✅ |
+| mod.zig | `src/types/mod.zig` | ✅ 6 tests | ✅ |
+
+**总测试数**: 54 个测试通过
 
 ### 待实现
 
 | 模块 | 文件 | 优先级 |
 |------|------|--------|
-| Address | `src/types/address.zig` | 高 |
-| UUID | `src/types/uuid.zig` | 高 |
-| types/mod.zig | `src/types/mod.zig` | 中 |
+| Error | `src/error.zig` | 高 |
+| HTTP | `src/http/` | 高 |
+| ContractConfig | `src/types/contracts.zig` | 中 |
 
 ### 测试命令
 
 ```bash
-# 运行所有 types 测试
-zig test src/types/decimal.zig
-zig test src/types/secret.zig
+# 运行所有类型测试
+zig test src/types/mod.zig
+
+# 运行完整测试套件
+zig build test
 
 # 构建项目
 zig build
@@ -367,16 +452,24 @@ Zig 版本: 0.15.2
 
 1. AGENTS.md - 编码规范（Zig 0.15 API、中文文档要求）
 2. CHANGELOG.dev.md - 开发日志（当前状态、已知问题）
-3. stories/v0.1-types.md - 当前工作单元
+3. ROADMAP.md - 项目路线图
 
 ## 当前状态
 
+### v0.1-types Story ✅ 已完成
 - ✅ Decimal 类型（10 tests）
 - ✅ Secret 类型（8 tests）
-- ⏳ Address 类型待实现
-- ⏳ UUID 类型待实现
+- ✅ Address 类型（15 tests）- EIP-55 校验和
+- ✅ UUID 类型（15 tests）- v4 随机生成
+- ✅ mod.zig 模块导出（6 tests）
+- 总计: 54 个测试通过
 
-## 下一步
+### 下一步 Stories
+- ⏳ v0.1-error - 错误类型定义
+- ⏳ v0.1-http - HTTP 客户端
+- ⏳ v0.1-public-api - 公共 API 端点
 
-继续实现 Address 类型（EIP-55 校验和）。
+## 下一步工作
+
+实现 v0.1-error Story（错误类型），然后 v0.1-http Story。
 ```

@@ -35,7 +35,7 @@ const book = try client.getOrderBook(token_id);
 
 | Story | 状态 | 依赖 |
 |-------|------|------|
-| [v0.1-types](./stories/v0.1-types.md) | 🔨 进行中 | - |
+| [v0.1-types](./stories/v0.1-types.md) | ✅ 已完成 | - |
 | [v0.1-error](./stories/v0.1-error.md) | ⏳ 待开始 | - |
 | [v0.1-http](./stories/v0.1-http.md) | ⏳ 待开始 | v0.1-error |
 | [v0.1-public-api](./stories/v0.1-public-api.md) | ⏳ 待开始 | v0.1-http, v0.1-types |
@@ -46,8 +46,9 @@ const book = try client.getOrderBook(token_id);
 |------|------|------|------|
 | Decimal | `src/types/decimal.zig` | ✅ 完成 | 10 tests |
 | Secret | `src/types/secret.zig` | ✅ 完成 | 8 tests |
-| Address | `src/types/address.zig` | ⏳ 待开始 | - |
-| UUID | `src/types/uuid.zig` | ⏳ 待开始 | - |
+| Address | `src/types/address.zig` | ✅ 完成 | 15 tests |
+| UUID | `src/types/uuid.zig` | ✅ 完成 | 15 tests |
+| mod.zig | `src/types/mod.zig` | ✅ 完成 | 6 tests |
 | ContractConfig | `src/types/contracts.zig` | ⏳ 待开始 | - |
 
 ### 公共端点 (L0 - 无需认证)
@@ -94,7 +95,9 @@ const book = try client.getOrderBook(token_id);
 - [x] Secret 类型实现
 - [x] 文档体系建立
 - [x] API 覆盖分析完成
-- [ ] Address, UUID 类型
+- [x] Address 类型实现（EIP-55 校验和）
+- [x] UUID 类型实现（v4 随机生成）
+- [x] types/mod.zig 模块导出
 - [ ] 合约配置类型
 - [ ] 错误类型
 - [ ] HTTP 客户端
@@ -364,3 +367,4 @@ try ws.subscribeTrades(token_id, onTrade);
 | 2024-12-31 | 根据官方客户端分析扩展 ROADMAP，覆盖完整 API |
 | 2024-12-31 | 添加 RFQ 端点、合约配置、类型定义、Header 类型、签名类型说明 |
 | 2024-12-31 | 完善 v0.3 RFQ 和 Builder 端点详情 |
+| 2024-12-31 | Address 和 UUID 类型实现完成，v0.1-types Story 完成 |
