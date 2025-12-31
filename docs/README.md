@@ -24,11 +24,16 @@ docs/
 │       ├── 001-decimal-type.md
 │       ├── 002-arraylist-allocator.md
 │       └── 003-secret-type.md
-└── types/                # 镜像 src/types/
-    ├── decimal.md        # 对应 src/types/decimal.zig
-    ├── secret.md         # 对应 src/types/secret.zig
-    ├── address.md        # 对应 src/types/address.zig
-    └── uuid.md           # 对应 src/types/uuid.zig
+├── types/                # 镜像 src/types/
+│   ├── decimal.md        # 对应 src/types/decimal.zig
+│   ├── secret.md         # 对应 src/types/secret.zig
+│   ├── address.md        # 对应 src/types/address.zig
+│   └── uuid.md           # 对应 src/types/uuid.zig
+└── crypto/               # 镜像 src/crypto/
+    ├── README.md         # 模块概述
+    ├── keccak.md         # 对应 src/crypto/keccak.zig
+    ├── ecdsa.md          # 对应 src/crypto/ecdsa.zig
+    └── hmac.md           # 对应 src/crypto/hmac.zig
 ```
 
 ## 设计文档
@@ -53,6 +58,8 @@ docs/
 
 ## 已实现的模块
 
+### types/ - 核心类型
+
 | 源文件 | 文档 | 状态 |
 |--------|------|------|
 | `src/types/decimal.zig` | [types/decimal.md](./types/decimal.md) | ✅ |
@@ -61,6 +68,15 @@ docs/
 | `src/types/uuid.zig` | [types/uuid.md](./types/uuid.md) | ✅ |
 | `src/types/mod.zig` | - | ✅ |
 | `src/types/contracts.zig` | [design/contracts.md](./design/contracts.md) | ⏳ 未实现 |
+
+### crypto/ - 加密模块
+
+| 源文件 | 文档 | 状态 |
+|--------|------|------|
+| `src/crypto/mod.zig` | [crypto/README.md](./crypto/README.md) | ✅ |
+| `src/crypto/keccak.zig` | [crypto/keccak.md](./crypto/keccak.md) | ✅ |
+| `src/crypto/ecdsa.zig` | [crypto/ecdsa.md](./crypto/ecdsa.md) | ✅ |
+| `src/crypto/hmac.zig` | [crypto/hmac.md](./crypto/hmac.md) | ✅ |
 
 ## API 覆盖统计
 

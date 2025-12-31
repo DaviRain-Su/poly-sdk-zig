@@ -130,7 +130,7 @@ try client.postOrder(order, .gtc);
 
 | Story | 状态 | 描述 | 依赖 |
 |-------|------|------|------|
-| [v0.2-crypto](./stories/v0.2-crypto.md) | ⏳ 待开始 | Keccak256, secp256k1, HMAC-SHA256 | v0.1-types |
+| [v0.2-crypto](./stories/v0.2-crypto.md) | ✅ 已完成 | Keccak256, secp256k1, HMAC-SHA256 | v0.1-types |
 | [v0.2-signer](./stories/v0.2-signer.md) | ⏳ 待开始 | Wallet, EIP-712 签名 | v0.2-crypto |
 | [v0.2-l1-auth](./stories/v0.2-l1-auth.md) | ⏳ 待开始 | L1 认证, API Key 创建/派生 | v0.2-signer |
 | [v0.2-l2-auth](./stories/v0.2-l2-auth.md) | ⏳ 待开始 | L2 认证, HMAC 请求签名 | v0.2-l1-auth |

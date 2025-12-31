@@ -29,6 +29,7 @@
 //!
 //! - `clob`: CLOB API client and types
 //! - `types`: Core types (Decimal, Address, UUID, Secret)
+//! - `crypto`: Cryptographic primitives (Keccak256, ECDSA, HMAC)
 //! - `errors`: Error types and utilities
 //! - `http`: HTTP client utilities
 //!
@@ -53,6 +54,9 @@ pub const errors = @import("error.zig");
 /// HTTP client module
 pub const http = @import("http/mod.zig");
 
+/// Cryptographic primitives module
+pub const crypto = @import("crypto/mod.zig");
+
 // Re-export CLOB client at root level for convenience
 pub const ClobClient = clob.ClobClient;
 
@@ -69,6 +73,13 @@ pub const ErrorContext = errors.ErrorContext;
 
 // Re-export HTTP types
 pub const HttpClient = http.HttpClient;
+
+// Re-export crypto types
+pub const PrivateKey = crypto.PrivateKey;
+pub const PublicKey = crypto.PublicKey;
+pub const Signature = crypto.Signature;
+pub const keccak256 = crypto.keccak256;
+pub const hmacSha256 = crypto.hmacSha256;
 
 // ============================================================================
 // Tests
@@ -90,6 +101,10 @@ test "root module exports" {
 
     // Verify CLOB client is accessible
     _ = ClobClient;
+
+    // Verify crypto types are accessible
+    const hash = keccak256("test");
+    try std.testing.expectEqual(@as(usize, 32), hash.len);
 }
 
 test "all submodules" {
@@ -97,4 +112,5 @@ test "all submodules" {
     _ = @import("types/mod.zig");
     _ = @import("error.zig");
     _ = @import("http/mod.zig");
+    _ = @import("crypto/mod.zig");
 }

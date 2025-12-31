@@ -6,6 +6,95 @@
 
 ## 会话记录
 
+### Session 2024-12-31-007
+
+**日期**: 2024-12-31  
+**时长**: ~45 分钟  
+**目标**: 实现 v0.2-crypto Story
+
+#### 完成的工作
+
+##### 1. Zig 0.15 Crypto 库调研
+
+确认 Zig 0.15 std.crypto 完全支持所需功能：
+- `std.crypto.hash.sha3.Keccak256` - Keccak256 哈希
+- `std.crypto.auth.hmac.sha2.HmacSha256` - HMAC-SHA256
+- `std.crypto.ecc.Secp256k1` + `std.crypto.sign.ecdsa.Ecdsa` - secp256k1 ECDSA
+
+##### 2. 实现 Keccak256 封装 (`src/crypto/keccak.zig`)
+
+- `keccak256(data)` - 计算哈希
+- `keccak256Multi(parts)` - 多块哈希
+- `Hasher` - 流式哈希器
+- `toHexString()` / `fromHexString()` - 十六进制转换
+- 11 个测试通过
+
+##### 3. 实现 HMAC-SHA256 封装 (`src/crypto/hmac.zig`)
+
+- `hmacSha256(key, message)` - 计算 MAC
+- `Hmac` - 流式计算器
+- `toBase64()` / `toBase64Alloc()` - Base64 编码
+- `verify()` - 常量时间验证
+- 10 个测试通过
+
+##### 4. 实现 secp256k1 ECDSA (`src/crypto/ecdsa.zig`)
+
+- `PrivateKey` - 私钥类型
+  - `fromHex()`, `fromBytes()`, `generate()`
+  - `publicKey()`, `sign()`, `toHex()`
+- `PublicKey` - 公钥类型
+  - `toAddress()`, `verify()`
+  - `toUncompressedBytes()`, `toCompressedBytes()`
+- `Signature` - 签名类型
+  - `r`, `s`, `v` 分量
+  - `toHex()`, `fromHex()`, `toBytes()`, `fromBytes()`
+  - `getEthereumV()` - 以太坊格式 v 值
+- 13 个测试通过
+
+##### 5. 创建模块导出 (`src/crypto/mod.zig`)
+
+- 统一导出所有 crypto 子模块
+- 便捷类型别名
+- 端到端测试
+- 3 个测试通过
+
+##### 6. 更新 root.zig
+
+- 添加 crypto 模块导出
+- 添加便捷类型导出 (PrivateKey, PublicKey, Signature, keccak256, hmacSha256)
+
+#### 测试结果
+
+```bash
+$ zig test src/root.zig
+All 139 tests passed.
+```
+
+| 模块 | 新增测试 |
+|------|----------|
+| crypto/keccak.zig | 11 |
+| crypto/hmac.zig | 10 |
+| crypto/ecdsa.zig | 13 |
+| crypto/mod.zig | 3 |
+| **crypto 总计** | **37** |
+
+#### 技术决策
+
+使用 Zig std.crypto 而非外部库：
+- 无外部依赖
+- 纯 Zig 实现
+- 完全支持 secp256k1 + Keccak256 组合
+
+#### v0.2-crypto 完成！✅
+
+所有任务已完成，37 个新测试通过。
+
+#### 下一步
+
+- [ ] v0.2-signer - Wallet 类型、EIP-712 签名
+
+---
+
 ### Session 2024-12-31-006
 
 **日期**: 2024-12-31  

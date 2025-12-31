@@ -34,7 +34,8 @@
 │  2. 编码阶段                                                       │
 │     ├── 实现功能代码                                               │
 │     ├── 添加代码注释                                               │
-│     └── 更新模块文档 (docs/types/, docs/clob/ 等)                 │
+│     ├── 同步更新 docs/ 对应文档（必须！）                          │
+│     └── 更新模块文档 (docs/types/, docs/crypto/, docs/clob/ 等)   │
 ├─────────────────────────────────────────────────────────────────┤
 │  3. 测试阶段                                                       │
 │     ├── 单元测试 (zig test src/xxx.zig)                           │
@@ -140,6 +141,87 @@ zig build run-examples  # 或手动运行 examples/
 - [ ] ...
 ```
 
+### 文档同步更新规范（强制）
+
+**核心原则**: 代码和文档必须同步更新，不允许代码实现后文档滞后。
+
+#### docs/ 目录结构镜像 src/
+
+```
+src/                          docs/
+├── types/                    ├── types/
+│   ├── decimal.zig          │   ├── decimal.md
+│   ├── address.zig          │   ├── address.md
+│   └── ...                  │   └── ...
+├── crypto/                   ├── crypto/
+│   ├── keccak.zig           │   ├── README.md (模块概述)
+│   ├── ecdsa.zig            │   ├── keccak.md
+│   └── hmac.zig             │   └── ecdsa.md
+├── clob/                     ├── clob/
+│   └── client.zig           │   └── client.md
+└── ...                       └── ...
+```
+
+#### 文档更新触发条件
+
+| 代码变更类型 | 必须更新的文档 |
+|-------------|---------------|
+| 新增模块 | `docs/<module>/README.md` + 各文件对应的 `.md` |
+| 新增类型 | `docs/types/<type>.md` + `docs/design/types.md` |
+| 新增 API 端点 | `docs/design/api-coverage.md` |
+| 新增公共函数 | 对应模块的 `.md` 文件 |
+| 修改函数签名 | 对应模块的 `.md` 文件 |
+| 修改行为/逻辑 | 对应模块的 `.md` 文件 |
+| 新增错误类型 | `docs/error.md` (如存在) |
+
+#### 文档内容要求
+
+每个模块文档 (`docs/<module>/<file>.md`) 必须包含：
+
+```markdown
+# <模块名>
+
+> 简要描述模块功能
+
+## 概述
+
+模块的用途和设计理念。
+
+## 类型
+
+### TypeName
+
+描述、字段、方法。
+
+## 函数
+
+### functionName
+
+```zig
+pub fn functionName(args) ReturnType
+```
+
+- **参数**: 参数说明
+- **返回**: 返回值说明
+- **错误**: 可能的错误
+- **示例**: 使用示例
+
+## 示例
+
+完整的使用示例代码。
+
+## 注意事项
+
+使用时的注意点、限制、安全考虑等。
+```
+
+#### 文档质量要求
+
+1. **示例代码必须可编译**: 文档中的示例代码必须是有效的 Zig 代码
+2. **保持同步**: 函数签名、参数名、返回类型必须与代码一致
+3. **中文编写**: 所有文档内容使用中文
+4. **链接有效**: 文档间的链接必须有效
+
 ### 文档更新检查清单
 
 每次提交前运行：
@@ -154,6 +236,7 @@ zig build run-examples  # 或手动运行 examples/
 ## 编码阶段  
 - [ ] 代码有文档注释？
 - [ ] 模块文档已更新？
+- [ ] docs/ 中对应的 .md 文件已创建/更新？
 
 ## 测试阶段
 - [ ] 单元测试通过？ `zig test src/xxx.zig`
@@ -164,6 +247,7 @@ zig build run-examples  # 或手动运行 examples/
 - [ ] CHANGELOG.dev.md 已更新？
 - [ ] README.md 需要更新吗？
 - [ ] docs/README.md 导航正确？
+- [ ] 新模块是否已添加到 docs/README.md 的目录中？
 ```
 
 ### 示例：添加新类型的完整流程
