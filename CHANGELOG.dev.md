@@ -6,6 +6,66 @@
 
 ## 会话记录
 
+### Session 2024-12-31-010
+
+**日期**: 2024-12-31  
+**时长**: ~25 分钟  
+**目标**: 完成 v0.2-l2-auth Story
+
+#### 完成的工作
+
+##### 1. 创建 L2 认证 (`src/auth/l2.zig`)
+
+- `L2Auth` 结构体
+- `generateHeader()` / `generateHeaderWithTimestamp()` - 生成 L2 Header
+- `computeSignature()` - HMAC-SHA256 签名计算
+- `buildSignatureMessage()` - 辅助函数（用于调试）
+- 10 个测试
+
+##### 2. 更新 mod.zig
+
+- 添加 L2Auth 模块导出
+- 添加便捷类型别名
+- 1 个集成测试
+
+##### 3. 更新 root.zig
+
+- 添加 L2Auth 导出
+- 1 个模块测试
+
+##### 4. 创建文档
+
+- `docs/auth/l2-auth.md` - L2 认证完整文档
+
+#### 测试结果
+
+```bash
+$ zig build test
+All tests passed.
+```
+
+| 模块 | 测试数 |
+|------|--------|
+| auth/l2.zig | 10 |
+| auth/mod.zig (新增) | 1 |
+| root.zig (新增) | 1 |
+| **L2 新增总计** | **12** |
+
+#### v0.2-l2-auth 完成！✅
+
+所有任务已完成：
+- [x] L2Auth 类型
+- [x] HMAC-SHA256 签名生成
+- [x] Base64 编码
+- [x] L2PolyHeader 集成
+- [x] 完整文档
+
+#### 下一步
+
+- [ ] v0.2-order-builder - 订单构建器
+
+---
+
 ### Session 2024-12-31-009
 
 **日期**: 2024-12-31  

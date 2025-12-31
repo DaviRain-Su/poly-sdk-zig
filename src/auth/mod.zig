@@ -2,7 +2,7 @@
 //!
 //! 提供 Polymarket API 认证功能，包括：
 //! - L1 认证：EIP-712 签名，用于 API Key 管理
-//! - L2 认证：HMAC-SHA256 签名，用于常规 API 请求（待实现）
+//! - L2 认证：HMAC-SHA256 签名，用于常规 API 请求
 //! - API 凭证管理
 //!
 //! ## 认证级别
@@ -32,6 +32,16 @@
 //! // 使用 API 凭证
 //! var creds = try auth.ApiCreds.fromJson(allocator, json_response);
 //! defer creds.deinit();
+//!
+//! // 创建 L2 认证器
+//! const l2 = auth.L2Auth.init(&creds);
+//!
+//! // 生成 L2 Header
+//! const l2_header = try l2.generateHeader(.{
+//!     .method = "POST",
+//!     .path = "/order",
+//!     .body = order_json,
+//! });
 //! ```
 
 const std = @import("std");
@@ -44,6 +54,9 @@ pub const headers = @import("headers.zig");
 
 /// L1 认证（EIP-712）
 pub const l1 = @import("l1.zig");
+
+/// L2 认证（HMAC-SHA256）
+pub const l2 = @import("l2.zig");
 
 // ============================================================================
 // 便捷类型导出
@@ -76,6 +89,18 @@ pub const CLOB_AUTH_DOMAIN_NAME = l1.CLOB_AUTH_DOMAIN_NAME;
 pub const CLOB_AUTH_DOMAIN_VERSION = l1.CLOB_AUTH_DOMAIN_VERSION;
 pub const CLOB_AUTH_TYPE = l1.CLOB_AUTH_TYPE;
 pub const clobAuthTypeHash = l1.clobAuthTypeHash;
+
+/// L2 认证器
+pub const L2Auth = l2.L2Auth;
+
+/// L2 认证请求选项
+pub const L2AuthRequestOptions = l2.L2AuthRequestOptions;
+
+/// L2 认证错误
+pub const L2AuthError = l2.L2AuthError;
+
+// L2 辅助函数
+pub const buildSignatureMessage = l2.buildSignatureMessage;
 
 // ============================================================================
 // 测试
@@ -112,6 +137,31 @@ test "auth module ApiCreds" {
     try std.testing.expectEqualStrings("test-key", creds.getApiKey());
 }
 
+test "auth module L2Auth" {
+    const allocator = std.testing.allocator;
+
+    var creds = try ApiCreds.init(
+        allocator,
+        "test-key",
+        "test-secret",
+        "test-pass",
+    );
+    defer creds.deinit();
+
+    const l2_auth = L2Auth.init(&creds);
+    try std.testing.expectEqualStrings("test-key", l2_auth.getApiKey());
+
+    // 测试生成 Header
+    const header = try l2_auth.generateHeaderWithTimestamp(.{
+        .method = "GET",
+        .path = "/test",
+        .body = null,
+    }, 1704067200);
+
+    try std.testing.expectEqualStrings("1704067200", header.getTimestamp());
+    try std.testing.expectEqual(@as(usize, 44), header.getSignature().len);
+}
+
 test "auth module constants" {
     try std.testing.expectEqualStrings(
         "This message attests that I control the given wallet",
@@ -125,4 +175,5 @@ test "all submodules" {
     _ = @import("api_creds.zig");
     _ = @import("headers.zig");
     _ = @import("l1.zig");
+    _ = @import("l2.zig");
 }

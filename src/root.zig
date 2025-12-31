@@ -95,6 +95,7 @@ pub const WalletError = signer.WalletError;
 
 // Re-export auth types
 pub const L1Auth = auth.L1Auth;
+pub const L2Auth = auth.L2Auth;
 pub const L1PolyHeader = auth.L1PolyHeader;
 pub const L2PolyHeader = auth.L2PolyHeader;
 pub const ApiCreds = auth.ApiCreds;
@@ -132,6 +133,16 @@ test "root module exports" {
     // Verify auth types are accessible
     const l1 = L1Auth.init(&wallet, .{ .chain_id = 137 });
     try std.testing.expectEqual(@as(u64, 137), l1.getChainId());
+}
+
+test "root module L2Auth" {
+    const allocator = std.testing.allocator;
+
+    var creds = try ApiCreds.init(allocator, "key", "secret", "pass");
+    defer creds.deinit();
+
+    const l2 = L2Auth.init(&creds);
+    try std.testing.expectEqualStrings("key", l2.getApiKey());
 }
 
 test "all submodules" {
