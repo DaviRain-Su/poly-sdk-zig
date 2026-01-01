@@ -18,9 +18,34 @@
 //! - 建议先在测试网或小额验证
 //!
 //! 运行前准备:
-//! 1. 设置环境变量 POLY_PRIVATE_KEY (钱包私钥)
-//! 2. 设置环境变量 POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE
-//! 3. 确保钱包有足够的 USDC 余额
+//! 方法一: 使用 .env 文件 (推荐)
+//!   1. 复制 .env.example 为 .env
+//!   2. 填入你的配置值
+//!   3. 运行程序
+//!
+//! 方法二: 使用环境变量
+//!   1. 设置环境变量 POLY_PRIVATE_KEY (钱包私钥)
+//!   2. 设置环境变量 POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE
+//!   3. 设置市场 Token ID 和 Condition ID
+//!   4. 确保钱包有足够的 USDC 余额
+//!
+//! 配置说明:
+//! - POLY_PRIVATE_KEY: 钱包私钥 (不带 0x 前缀)
+//! - POLY_API_KEY: Polymarket API Key
+//! - POLY_API_SECRET: Polymarket API Secret
+//! - POLY_API_PASSPHRASE: Polymarket API Passphrase
+//! - POLY_YES_TOKEN: YES Token ID (从市场页面获取)
+//! - POLY_NO_TOKEN: NO Token ID (从市场页面获取)
+//! - POLY_CONDITION_ID: 市场 Condition ID
+//! - POLY_USE_TESTNET: 是否使用测试网 (true/false, 默认 false)
+//!
+//! 策略参数:
+//! - STRATEGY_SUM_TARGET: 累计买入目标 (0-1, 默认 0.3)
+//! - STRATEGY_MOVE_THRESHOLD: 下跌触发阈值 (0-1, 默认 0.01)
+//! - STRATEGY_MIN_BUY_PRICE: 最低买入价格 (0-1, 默认 0.15)
+//! - STRATEGY_HEDGE_SPREAD: 对冲价差 (0-1, 默认 0.05)
+//! - STRATEGY_MAX_POSITION: 最大仓位 USDC (默认 100)
+//! - STRATEGY_POLL_INTERVAL: 监控间隔毫秒 (默认 500)
 
 const std = @import("std");
 const root = @import("../src/root.zig");
@@ -34,6 +59,7 @@ const OrderBuilder = root.order.OrderBuilder;
 const Side = root.clob.types.Side;
 const OrderType = root.clob.types.OrderType;
 const TickSize = root.order.TickSize;
+const DotEnv = root.utils.DotEnv;
 
 // ============================================================================
 // 策略配置
@@ -431,51 +457,89 @@ pub fn main() !void {
     std.debug.print("\n", .{});
 
     // =========================================================================
-    // 1. 加载环境变量
+    // 1. 加载环境变量 (优先从 .env 文件, 然后是系统环境变量)
     // =========================================================================
 
     std.debug.print("1. 加载配置...\n", .{});
 
-    // 从环境变量获取凭证
-    const private_key = std.posix.getenv("POLY_PRIVATE_KEY") orelse {
-        std.debug.print("   错误: 请设置 POLY_PRIVATE_KEY 环境变量\n", .{});
-        std.debug.print("   示例: export POLY_PRIVATE_KEY=0x...\n", .{});
+    // 加载 .env 文件 (如果存在)
+    var env = root.utils.loadEnvOrEmpty(allocator, ".env");
+    defer env.deinit();
+
+    // 检查是否成功加载 .env
+    if (env.count() > 0) {
+        std.debug.print("   从 .env 文件加载了 {d} 个配置项\n", .{env.count()});
+    } else {
+        std.debug.print("   未找到 .env 文件，使用系统环境变量\n", .{});
+    }
+
+    // 从 .env 或系统环境变量获取凭证
+    const private_key = env.get("POLY_PRIVATE_KEY") orelse {
+        std.debug.print("\n", .{});
+        std.debug.print("   错误: 请设置 POLY_PRIVATE_KEY\n", .{});
+        std.debug.print("\n", .{});
+        std.debug.print("   方法一: 创建 .env 文件\n", .{});
+        std.debug.print("   $ cp .env.example .env\n", .{});
+        std.debug.print("   $ vim .env  # 编辑填入你的私钥\n", .{});
+        std.debug.print("\n", .{});
+        std.debug.print("   方法二: 设置环境变量\n", .{});
+        std.debug.print("   $ export POLY_PRIVATE_KEY=your_private_key_without_0x\n", .{});
+        std.debug.print("\n", .{});
         return error.MissingCredentials;
     };
 
-    const api_key = std.posix.getenv("POLY_API_KEY") orelse {
-        std.debug.print("   错误: 请设置 POLY_API_KEY 环境变量\n", .{});
+    const api_key = env.get("POLY_API_KEY") orelse {
+        std.debug.print("   错误: 请设置 POLY_API_KEY\n", .{});
+        std.debug.print("   提示: 可通过 Polymarket API 或客户端获取\n", .{});
         return error.MissingCredentials;
     };
 
-    const api_secret = std.posix.getenv("POLY_API_SECRET") orelse {
-        std.debug.print("   错误: 请设置 POLY_API_SECRET 环境变量\n", .{});
+    const api_secret = env.get("POLY_API_SECRET") orelse {
+        std.debug.print("   错误: 请设置 POLY_API_SECRET\n", .{});
         return error.MissingCredentials;
     };
 
-    const api_passphrase = std.posix.getenv("POLY_API_PASSPHRASE") orelse {
-        std.debug.print("   错误: 请设置 POLY_API_PASSPHRASE 环境变量\n", .{});
+    const api_passphrase = env.get("POLY_API_PASSPHRASE") orelse {
+        std.debug.print("   错误: 请设置 POLY_API_PASSPHRASE\n", .{});
         return error.MissingCredentials;
     };
 
     // 市场配置 (需要替换为实际的 BTC 15分钟期权市场)
-    const yes_token = std.posix.getenv("POLY_YES_TOKEN") orelse {
-        std.debug.print("   错误: 请设置 POLY_YES_TOKEN 环境变量 (YES Token ID)\n", .{});
-        std.debug.print("   可从 Polymarket 市场页面获取\n", .{});
+    const yes_token = env.get("POLY_YES_TOKEN") orelse {
+        std.debug.print("\n", .{});
+        std.debug.print("   错误: 请设置 POLY_YES_TOKEN (YES Token ID)\n", .{});
+        std.debug.print("\n", .{});
+        std.debug.print("   获取方法:\n", .{});
+        std.debug.print("   1. 访问 Polymarket 市场页面\n", .{});
+        std.debug.print("   2. 打开浏览器开发者工具 (F12)\n", .{});
+        std.debug.print("   3. 在 Network 标签中找到 API 请求\n", .{});
+        std.debug.print("   4. 查找 token_id 或 clob_token_ids\n", .{});
+        std.debug.print("\n", .{});
         return error.MissingCredentials;
     };
 
-    const no_token = std.posix.getenv("POLY_NO_TOKEN") orelse {
-        std.debug.print("   错误: 请设置 POLY_NO_TOKEN 环境变量 (NO Token ID)\n", .{});
+    const no_token = env.get("POLY_NO_TOKEN") orelse {
+        std.debug.print("   错误: 请设置 POLY_NO_TOKEN (NO Token ID)\n", .{});
         return error.MissingCredentials;
     };
 
-    const condition_id = std.posix.getenv("POLY_CONDITION_ID") orelse {
-        std.debug.print("   错误: 请设置 POLY_CONDITION_ID 环境变量 (市场 ID)\n", .{});
+    const condition_id = env.get("POLY_CONDITION_ID") orelse {
+        std.debug.print("   错误: 请设置 POLY_CONDITION_ID (市场 Condition ID)\n", .{});
         return error.MissingCredentials;
     };
 
-    std.debug.print("   配置加载完成\n\n", .{});
+    // 从环境变量读取策略参数 (使用默认值)
+    const use_testnet = env.getBool("POLY_USE_TESTNET", false);
+    const sum_target = env.getFloat(f64, "STRATEGY_SUM_TARGET", 0.3);
+    const move_threshold = env.getFloat(f64, "STRATEGY_MOVE_THRESHOLD", 0.01);
+    const min_buy_price = env.getFloat(f64, "STRATEGY_MIN_BUY_PRICE", 0.15);
+    const hedge_spread = env.getFloat(f64, "STRATEGY_HEDGE_SPREAD", 0.05);
+    const max_position_size = env.getFloat(f64, "STRATEGY_MAX_POSITION", 100.0);
+    const poll_interval_ms = env.getInt(u64, "STRATEGY_POLL_INTERVAL", 500);
+
+    std.debug.print("   配置加载完成\n", .{});
+    std.debug.print("   网络: {s}\n", .{if (use_testnet) "测试网 (Amoy)" else "主网 (Polygon)"});
+    std.debug.print("\n", .{});
 
     // =========================================================================
     // 2. 初始化钱包和客户端
@@ -528,14 +592,14 @@ pub fn main() !void {
         .no_token_id = no_token,
         .condition_id = condition_id,
 
-        // 保守配置 (推荐初始测试)
-        .sum_target = 0.3, // 30% 累计买入
-        .move_threshold = 0.01, // 1% 下跌触发监控
-        .min_buy_price = 0.15, // 价格低于 0.15 才买入
-        .hedge_spread = 0.05, // 5% 价差对冲
-        .max_position_size = 100.0, // 最大 100 USDC
-        .poll_interval_ms = 500, // 500ms 监控间隔
-        .use_testnet = false,
+        // 从环境变量或 .env 文件读取，使用默认值作为后备
+        .sum_target = sum_target,
+        .move_threshold = move_threshold,
+        .min_buy_price = min_buy_price,
+        .hedge_spread = hedge_spread,
+        .max_position_size = max_position_size,
+        .poll_interval_ms = poll_interval_ms,
+        .use_testnet = use_testnet,
     };
 
     std.debug.print("   累计目标: {d:.0}%\n", .{config.sum_target * 100});

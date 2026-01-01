@@ -74,6 +74,9 @@ pub const rfq = @import("rfq/mod.zig");
 /// WebSocket module
 pub const ws = @import("ws/mod.zig");
 
+/// Utilities module (dotenv, etc.)
+pub const utils = @import("utils/mod.zig");
+
 // Re-export CLOB client at root level for convenience
 pub const ClobClient = clob.ClobClient;
 
@@ -146,6 +149,12 @@ pub const BookMessage = ws.BookMessage;
 pub const PriceChangeMessage = ws.PriceChangeMessage;
 pub const WsOrderMessage = ws.OrderMessage;
 pub const WsTradeMessage = ws.TradeMessage;
+
+// Re-export utils types
+pub const DotEnv = utils.DotEnv;
+pub const DotEnvError = utils.DotEnvError;
+pub const loadEnv = utils.loadEnv;
+pub const loadEnvOrEmpty = utils.loadEnvOrEmpty;
 
 // ============================================================================
 // Tests
@@ -233,6 +242,21 @@ test "all submodules" {
     _ = @import("order/mod.zig");
     _ = @import("rfq/mod.zig");
     _ = @import("ws/mod.zig");
+    _ = @import("utils/mod.zig");
+}
+
+test "utils module exports" {
+    const allocator = std.testing.allocator;
+
+    // Test DotEnv
+    var env = DotEnv.init(allocator);
+    defer env.deinit();
+
+    _ = try env.loadFromString("TEST_KEY=test_value");
+    try std.testing.expectEqualStrings("test_value", env.get("TEST_KEY").?);
+
+    // Test helper functions
+    _ = loadEnvOrEmpty;
 }
 
 test "rfq module exports" {
