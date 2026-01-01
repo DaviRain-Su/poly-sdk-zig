@@ -59,6 +59,9 @@ const WsTraderConfig = struct {
 
     /// 签名类型 (0=EOA, 1=POLY_PROXY, 2=POLY_GNOSIS_SAFE)
     signature_type: SignatureType = .EOA,
+
+    /// Funder/Proxy 地址（用于 POLY_PROXY 或 POLY_GNOSIS_SAFE）
+    funder: ?[20]u8 = null,
 };
 
 /// 市场信息
@@ -325,6 +328,7 @@ const WsTrader = struct {
             .wallet = wallet,
             .builder = if (wallet) |w| OrderBuilder.init(w, .{
                 .chain_id = if (config.use_testnet) 80002 else 137,
+                .funder = config.funder,
             }) else null,
             .position = .{},
             .stats = .{},
@@ -673,6 +677,13 @@ const WsTrader = struct {
             const size_str = try std.fmt.allocPrint(self.allocator, "{d:.0}", .{size});
             defer self.allocator.free(size_str);
 
+            log("  准备下单: token={s}, price={s}, size={s}, side=BUY, sig_type={d}", .{
+                token_id,
+                price_str,
+                size_str,
+                @intFromEnum(self.config.signature_type),
+            });
+
             const order = try builder.createOrder(.{
                 .token_id = token_id,
                 .price = try Decimal.fromString(price_str),
@@ -682,6 +693,15 @@ const WsTrader = struct {
                 .tick_size = .@"0.01",
                 .neg_risk = false,
                 .signature_type = self.config.signature_type,
+            });
+
+            // 打印订单详情
+            var buffers = poly.order.types.SignedOrder.OrderDataBuffers{};
+            const order_data = order.toOrderData(&buffers);
+            log("  订单详情: maker={s}, signer={s}, salt={d}", .{
+                order_data.maker,
+                order_data.signer,
+                order_data.salt,
             });
 
             const response = self.client.postOrder(&order, .GTC) catch |err| {
@@ -1040,6 +1060,25 @@ fn log(comptime fmt: []const u8, args: anytype) void {
     std.debug.print("[{d}] " ++ fmt ++ "\n", .{timestamp} ++ args);
 }
 
+/// 解析 funder 地址（十六进制字符串转 [20]u8）
+fn parseFunderAddress(hex: []const u8) ?[20]u8 {
+    // 移除 0x 前缀
+    const clean = if (hex.len >= 2 and hex[0] == '0' and (hex[1] == 'x' or hex[1] == 'X'))
+        hex[2..]
+    else
+        hex;
+
+    if (clean.len != 40) return null;
+
+    var result: [20]u8 = undefined;
+    for (0..20) |i| {
+        const high = std.fmt.charToDigit(clean[i * 2], 16) catch return null;
+        const low = std.fmt.charToDigit(clean[i * 2 + 1], 16) catch return null;
+        result[i] = (high << 4) | low;
+    }
+    return result;
+}
+
 // ============================================================================
 // 主程序
 // ============================================================================
@@ -1057,6 +1096,15 @@ pub fn main() !void {
     const sig_type_val = env.getInt(u8, "WS_TRADER_SIGNATURE_TYPE", 2); // 默认 POLY_GNOSIS_SAFE
     const signature_type = SignatureType.fromU8(sig_type_val) orelse .POLY_GNOSIS_SAFE;
 
+    // 解析 funder/proxy 地址（用于 POLY_PROXY 或 POLY_GNOSIS_SAFE）
+    var funder: ?[20]u8 = null;
+    if (env.get("POLY_FUNDER_ADDRESS") orelse env.get("POLY_ADDRESS")) |funder_hex| {
+        funder = parseFunderAddress(funder_hex);
+        if (funder == null) {
+            std.debug.print("警告: POLY_FUNDER_ADDRESS 格式无效: {s}\n", .{funder_hex});
+        }
+    }
+
     // 解析配置
     const config = WsTraderConfig{
         .dry_run = env.getBool("WS_TRADER_DRY_RUN", true),
@@ -1067,6 +1115,7 @@ pub fn main() !void {
         .max_position = env.getFloat(f64, "WS_TRADER_MAX_POSITION", 200.0),
         .use_testnet = env.getBool("POLY_USE_TESTNET", false),
         .signature_type = signature_type,
+        .funder = funder,
     };
 
     // 创建客户端配置
@@ -1111,6 +1160,42 @@ pub fn main() !void {
             std.debug.print("API 凭证获取成功!\n", .{});
             client.setApiCreds(&creds.?);
         }
+
+        // 检查余额和 allowance
+        const bal_result = client.getBalanceAllowance(.{
+            .asset_type = .COLLATERAL,
+            .signature_type = @intFromEnum(config.signature_type),
+        }) catch |err| {
+            std.debug.print("查询余额失败: {}\n", .{err});
+            return err;
+        };
+        defer bal_result.deinit();
+
+        const bal_str = bal_result.value.balance orelse "0";
+        const allow_str = bal_result.value.allowance orelse "0";
+        const bal_val = std.fmt.parseInt(u64, bal_str, 10) catch 0;
+        const allow_val = std.fmt.parseInt(u64, allow_str, 10) catch 0;
+        const bal_usdc = @as(f64, @floatFromInt(bal_val)) / 1_000_000.0;
+        const allow_usdc = @as(f64, @floatFromInt(allow_val)) / 1_000_000.0;
+
+        std.debug.print("\n账户状态:\n", .{});
+        std.debug.print("  余额:     ${d:.2} USDC\n", .{bal_usdc});
+        std.debug.print("  Allowance: ${d:.2} USDC\n", .{allow_usdc});
+        std.debug.print("  订单金额: ${d:.2}\n", .{config.order_size});
+
+        if (allow_val == 0) {
+            std.debug.print("\n⚠️  Allowance 为 0！无法交易\n", .{});
+            std.debug.print("   请在 Polymarket 网站上授权 USDC\n", .{});
+            return error.InsufficientAllowance;
+        }
+
+        if (bal_usdc < config.order_size) {
+            std.debug.print("\n⚠️  余额 (${d:.2}) 小于订单金额 (${d:.2})\n", .{ bal_usdc, config.order_size });
+            std.debug.print("   请充值或减小 WS_TRADER_ORDER_SIZE\n", .{});
+            return error.InsufficientBalance;
+        }
+
+        std.debug.print("\n", .{});
     } else {
         client = ClobClient.init(allocator, client_config);
     }

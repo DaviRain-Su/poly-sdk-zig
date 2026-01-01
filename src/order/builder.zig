@@ -68,6 +68,9 @@ pub const OrderBuilderError = error{
 pub const OrderBuilderOptions = struct {
     /// 链 ID (137 = Polygon mainnet, 80002 = Amoy testnet)
     chain_id: u64 = 137,
+    /// Funder 地址（用于 Proxy 钱包，如 POLY_PROXY 或 POLY_GNOSIS_SAFE）
+    /// 如果为 null，则使用 wallet 地址
+    funder: ?[20]u8 = null,
 };
 
 /// 订单构建器
@@ -78,6 +81,8 @@ pub const OrderBuilder = struct {
     wallet: *const Wallet,
     /// 链 ID
     chain_id: u64,
+    /// Funder 地址（用于 Proxy 钱包）
+    funder: ?[20]u8,
 
     const Self = @This();
 
@@ -86,6 +91,7 @@ pub const OrderBuilder = struct {
         return Self{
             .wallet = wallet,
             .chain_id = options.chain_id,
+            .funder = options.funder,
         };
     }
 
@@ -134,8 +140,10 @@ pub const OrderBuilder = struct {
         };
 
         // 获取地址
-        const maker = self.wallet.address_bytes;
-        const signer = maker; // 对于 EOA，maker == signer
+        // 对于 EOA: maker == signer
+        // 对于 Proxy (POLY_PROXY, POLY_GNOSIS_SAFE): maker = funder (proxy 地址), signer = EOA
+        const maker = self.funder orelse self.wallet.address_bytes;
+        const signer = self.wallet.address_bytes;
         const taker = args.taker orelse SignedOrder.ZERO_ADDRESS;
 
         // 构建订单

@@ -1316,6 +1316,11 @@ pub const ClobClient = struct {
         const response_body = try self.doAuthPost(Endpoints.ORDER, json_body);
         defer self.allocator.free(response_body);
 
+        // 调试：打印响应
+        if (response_body.len > 0) {
+            std.debug.print("Order API Response: {s}\n", .{response_body});
+        }
+
         const parsed = std.json.parseFromSlice(types.PostOrderResponse, self.allocator, response_body, .{
             .ignore_unknown_fields = true,
         }) catch return Error.InvalidJson;

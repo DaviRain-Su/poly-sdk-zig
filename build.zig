@@ -182,6 +182,11 @@ pub fn build(b: *std.Build) void {
             .source = "examples/btc_ws_trader.zig",
             .description = "BTC 15m WebSocket real-time trading system",
         },
+        .{
+            .name = "test_order_debug",
+            .source = "examples/test_order_debug.zig",
+            .description = "Debug order submission",
+        },
     };
 
     // Create a step to build and install all examples
