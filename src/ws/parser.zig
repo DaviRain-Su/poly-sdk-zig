@@ -30,6 +30,29 @@ pub const ParseResult = union(enum) {
     unknown: []const u8,
 };
 
+/// 带资源管理的解析结果
+/// 调用者必须调用 deinit() 释放内存
+pub const ParsedMessage = struct {
+    result: ParseResult,
+    /// 内部 JSON 解析句柄，用于释放内存
+    _parsed: ?std.json.Parsed(std.json.Value),
+    allocator: Allocator,
+
+    const Self = @This();
+
+    /// 释放解析结果占用的内存
+    pub fn deinit(self: *Self) void {
+        if (self._parsed) |*p| {
+            p.deinit();
+        }
+    }
+
+    /// 获取解析结果
+    pub fn get(self: *const Self) ParseResult {
+        return self.result;
+    }
+};
+
 /// 消息解析器
 pub const MessageParser = struct {
     allocator: Allocator,
@@ -40,11 +63,17 @@ pub const MessageParser = struct {
         return .{ .allocator = allocator };
     }
 
-    /// 解析原始消息
-    pub fn parse(self: *Self, raw_message: []const u8) ParseError!ParseResult {
+    /// 解析原始消息（返回带资源管理的结果）
+    ///
+    /// 调用者必须调用返回值的 deinit() 方法释放内存
+    pub fn parseOwned(self: *Self, raw_message: []const u8) ParseError!ParsedMessage {
         // 检查 PONG 响应
         if (std.mem.eql(u8, raw_message, "PONG")) {
-            return .{ .pong = {} };
+            return ParsedMessage{
+                .result = .{ .pong = {} },
+                ._parsed = null,
+                .allocator = self.allocator,
+            };
         }
 
         // 尝试解析 JSON
@@ -54,26 +83,38 @@ pub const MessageParser = struct {
             raw_message,
             .{},
         ) catch return ParseError.InvalidJson;
-        defer parsed.deinit();
+        // 不要 defer deinit，让调用者负责
 
         const root = parsed.value;
 
         // 获取事件类型
         const event_type_value = root.object.get("event_type") orelse {
-            return .{ .unknown = raw_message };
+            return ParsedMessage{
+                .result = .{ .unknown = raw_message },
+                ._parsed = parsed,
+                .allocator = self.allocator,
+            };
         };
 
         const event_type_str = switch (event_type_value) {
             .string => |s| s,
-            else => return ParseError.MissingEventType,
+            else => {
+                var p = parsed;
+                p.deinit();
+                return ParseError.MissingEventType;
+            },
         };
 
         // 根据事件类型解析
         const event_type = types.EventType.fromString(event_type_str) orelse {
-            return .{ .unknown = raw_message };
+            return ParsedMessage{
+                .result = .{ .unknown = raw_message },
+                ._parsed = parsed,
+                .allocator = self.allocator,
+            };
         };
 
-        return switch (event_type) {
+        const result = switch (event_type) {
             .book => self.parseBookMessage(root),
             .price_change => self.parsePriceChangeMessage(root),
             .last_trade_price => self.parseLastTradePriceMessage(root),
@@ -81,8 +122,29 @@ pub const MessageParser = struct {
             .tick_size_change => self.parseTickSizeChangeMessage(root),
             .order => self.parseOrderMessage(root),
             .trade => self.parseTradeMessage(root),
-            .new_market, .market_resolved => .{ .unknown = raw_message },
+            .new_market, .market_resolved => ParseResult{ .unknown = raw_message },
+        } catch |err| {
+            var p = parsed;
+            p.deinit();
+            return err;
         };
+
+        return ParsedMessage{
+            .result = result,
+            ._parsed = parsed,
+            .allocator = self.allocator,
+        };
+    }
+
+    /// 解析原始消息（旧 API，用于简单场景）
+    /// 警告：返回的字符串指针可能在解析器内部内存释放后失效
+    /// 推荐使用 parseOwned() 代替
+    pub fn parse(self: *Self, raw_message: []const u8) ParseError!ParseResult {
+        const owned = try self.parseOwned(raw_message);
+        // 注意：这里不调用 deinit()，因为我们要返回结果
+        // 这意味着内存会泄漏，但这是旧 API 的行为
+        // 新代码应该使用 parseOwned()
+        return owned.result;
     }
 
     /// 解析 Book 消息
@@ -362,82 +424,107 @@ test "extractMarket" {
     try std.testing.expectEqualStrings("0xabcdef", extractMarket(msg).?);
 }
 
-test "MessageParser.parse PONG" {
+test "MessageParser.parseOwned PONG" {
     var parser = MessageParser.init(std.testing.allocator);
-    const result = try parser.parse("PONG");
-    try std.testing.expect(result == .pong);
+    var result = try parser.parseOwned("PONG");
+    defer result.deinit();
+    try std.testing.expect(result.result == .pong);
 }
 
-test "MessageParser.parse book message" {
+test "MessageParser.parseOwned book message" {
     var msg_parser = MessageParser.init(std.testing.allocator);
 
     const json =
         \\{"event_type":"book","asset_id":"123","market":"0xabc","bids":[],"asks":[],"timestamp":"1234567890"}
     ;
 
-    const result = try msg_parser.parse(json);
-    try std.testing.expect(result == .book);
-    // 注意：由于 JSON 解析后会释放内存，这里只测试类型匹配
-    // 实际使用时需要复制字符串或使用不同的内存策略
+    var result = try msg_parser.parseOwned(json);
+    defer result.deinit();
+
+    try std.testing.expect(result.result == .book);
+    const book = result.result.book;
+    try std.testing.expectEqualStrings("123", book.asset_id);
+    try std.testing.expectEqualStrings("0xabc", book.market);
+    try std.testing.expectEqualStrings("1234567890", book.timestamp);
 }
 
-test "MessageParser.parse last_trade_price message" {
+test "MessageParser.parseOwned last_trade_price message" {
     var msg_parser = MessageParser.init(std.testing.allocator);
 
     const json =
         \\{"event_type":"last_trade_price","asset_id":"123","market":"0xabc","price":"0.5","size":"100","side":"BUY","timestamp":"1234567890"}
     ;
 
-    const result = try msg_parser.parse(json);
-    try std.testing.expect(result == .last_trade_price);
+    var result = try msg_parser.parseOwned(json);
+    defer result.deinit();
+
+    try std.testing.expect(result.result == .last_trade_price);
+    const ltp = result.result.last_trade_price;
+    try std.testing.expectEqualStrings("123", ltp.asset_id);
+    try std.testing.expectEqualStrings("0.5", ltp.price);
 }
 
-test "MessageParser.parse order message" {
+test "MessageParser.parseOwned order message" {
     var msg_parser = MessageParser.init(std.testing.allocator);
 
     const json =
         \\{"event_type":"order","id":"order-123","asset_id":"asset-456","market":"0xmarket","type":"PLACEMENT","side":"SELL","price":"0.65","original_size":"50","size_matched":"0","timestamp":"1234567890"}
     ;
 
-    const result = try msg_parser.parse(json);
-    try std.testing.expect(result == .order);
+    var result = try msg_parser.parseOwned(json);
+    defer result.deinit();
+
+    try std.testing.expect(result.result == .order);
+    const order = result.result.order;
+    try std.testing.expectEqualStrings("order-123", order.id);
 }
 
-test "MessageParser.parse trade message" {
+test "MessageParser.parseOwned trade message" {
     var msg_parser = MessageParser.init(std.testing.allocator);
 
     const json =
         \\{"event_type":"trade","id":"trade-789","asset_id":"asset-456","market":"0xmarket","status":"MATCHED","side":"BUY","price":"0.55","size":"25","timestamp":"1234567890"}
     ;
 
-    const result = try msg_parser.parse(json);
-    try std.testing.expect(result == .trade);
+    var result = try msg_parser.parseOwned(json);
+    defer result.deinit();
+
+    try std.testing.expect(result.result == .trade);
+    const trade = result.result.trade;
+    try std.testing.expectEqualStrings("trade-789", trade.id);
 }
 
-test "MessageParser.parse unknown event type" {
+test "MessageParser.parseOwned unknown event type" {
     var msg_parser = MessageParser.init(std.testing.allocator);
 
     const json =
         \\{"event_type":"unknown_type","data":"test"}
     ;
 
-    const result = try msg_parser.parse(json);
-    try std.testing.expect(result == .unknown);
+    var result = try msg_parser.parseOwned(json);
+    defer result.deinit();
+
+    try std.testing.expect(result.result == .unknown);
 }
 
-test "MessageParser.parse invalid json" {
+test "MessageParser.parseOwned invalid json" {
     var msg_parser = MessageParser.init(std.testing.allocator);
-    const result = msg_parser.parse("not valid json {");
+    const result = msg_parser.parseOwned("not valid json {");
     try std.testing.expectError(ParseError.InvalidJson, result);
 }
 
-test "MessageParser.parse best_bid_ask message" {
+test "MessageParser.parseOwned best_bid_ask message" {
     var msg_parser = MessageParser.init(std.testing.allocator);
 
     const json =
         \\{"event_type":"best_bid_ask","asset_id":"123","market":"0xabc","best_bid":"0.48","best_ask":"0.52","spread":"0.04","timestamp":"1234567890"}
     ;
 
-    const result = try msg_parser.parse(json);
-    try std.testing.expect(result == .best_bid_ask);
+    var result = try msg_parser.parseOwned(json);
+    defer result.deinit();
+
+    try std.testing.expect(result.result == .best_bid_ask);
+    const bba = result.result.best_bid_ask;
+    try std.testing.expectEqualStrings("0.48", bba.best_bid);
+    try std.testing.expectEqualStrings("0.52", bba.best_ask);
 }

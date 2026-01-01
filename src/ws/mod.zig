@@ -137,6 +137,9 @@ pub const MessageParser = parser.MessageParser;
 /// 解析结果
 pub const ParseResult = parser.ParseResult;
 
+/// 带资源管理的解析结果
+pub const ParsedMessage = parser.ParsedMessage;
+
 /// 解析错误
 pub const ParseError = parser.ParseError;
 

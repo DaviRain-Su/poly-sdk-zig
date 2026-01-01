@@ -305,18 +305,21 @@ pub fn main() !void {
         std.debug.print("提取的 market: {s}\n\n", .{market_id});
     }
 
-    // 使用完整解析器
+    // 使用完整解析器（使用 parseOwned 确保内存安全）
     var parser = ws.MessageParser.init(allocator);
-    const result = parser.parse(book_json) catch |err| {
+    var parsed = parser.parseOwned(book_json) catch |err| {
         std.debug.print("解析错误: {}\n", .{err});
         return;
     };
+    defer parsed.deinit(); // 确保释放内存
 
-    switch (result) {
+    switch (parsed.result) {
         .book => |book| {
             std.debug.print("完整解析结果:\n", .{});
-            std.debug.print("  event_type: {s}\n", .{book.event_type});
+            std.debug.print("  event_type: book\n", .{});
             std.debug.print("  asset_id: {s}\n", .{book.asset_id});
+            std.debug.print("  market: {s}\n", .{book.market});
+            std.debug.print("  timestamp: {s}\n", .{book.timestamp});
             std.debug.print("  bids: {d} levels\n", .{book.bids.len});
             std.debug.print("  asks: {d} levels\n", .{book.asks.len});
         },
