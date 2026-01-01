@@ -109,7 +109,7 @@ pub const RfqClient = struct {
     ///
     /// 创建一个新的大宗交易询价请求。
     pub fn createRfqRequest(self: *Self, params: types.CreateRfqRequestParams) RfqError!types.RfqRequest {
-        const json_body = std.json.stringifyAlloc(self.allocator, params, .{}) catch return RfqError.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, params, .{}) catch return RfqError.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = self.doAuthPost(Endpoints.RFQ_REQUEST, json_body) catch return RfqError.RequestFailed;
@@ -130,7 +130,7 @@ pub const RfqClient = struct {
     pub fn cancelRfqRequest(self: *Self, request_id: []const u8) RfqError!types.CancelRfqResponse {
         const request_body = .{ .requestId = request_id };
 
-        const json_body = std.json.stringifyAlloc(self.allocator, request_body, .{}) catch return RfqError.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, request_body, .{}) catch return RfqError.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = self.doAuthDelete(Endpoints.RFQ_REQUEST, json_body) catch return RfqError.RequestFailed;
@@ -206,7 +206,7 @@ pub const RfqClient = struct {
     ///
     /// 做市商为询价请求创建报价。
     pub fn createRfqQuote(self: *Self, params: types.CreateRfqQuoteParams) RfqError!types.RfqQuote {
-        const json_body = std.json.stringifyAlloc(self.allocator, params, .{}) catch return RfqError.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, params, .{}) catch return RfqError.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = self.doAuthPost(Endpoints.RFQ_QUOTE, json_body) catch return RfqError.RequestFailed;
@@ -227,7 +227,7 @@ pub const RfqClient = struct {
     pub fn cancelRfqQuote(self: *Self, quote_id: []const u8) RfqError!types.CancelRfqResponse {
         const request_body = .{ .quoteId = quote_id };
 
-        const json_body = std.json.stringifyAlloc(self.allocator, request_body, .{}) catch return RfqError.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, request_body, .{}) catch return RfqError.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = self.doAuthDelete(Endpoints.RFQ_QUOTE, json_body) catch return RfqError.RequestFailed;
@@ -330,7 +330,7 @@ pub const RfqClient = struct {
     ///
     /// 用户接受做市商的报价。
     pub fn acceptRfqQuote(self: *Self, params: types.AcceptRfqQuoteParams) RfqError!types.AcceptRfqQuoteResponse {
-        const json_body = std.json.stringifyAlloc(self.allocator, params, .{}) catch return RfqError.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, params, .{}) catch return RfqError.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = self.doAuthPost(Endpoints.RFQ_REQUEST_ACCEPT, json_body) catch return RfqError.RequestFailed;
@@ -350,7 +350,7 @@ pub const RfqClient = struct {
     pub fn approveRfqOrder(self: *Self, quote_id: []const u8) RfqError!types.ApproveRfqOrderResponse {
         const request_body = .{ .quoteId = quote_id };
 
-        const json_body = std.json.stringifyAlloc(self.allocator, request_body, .{}) catch return RfqError.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, request_body, .{}) catch return RfqError.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = self.doAuthPost(Endpoints.RFQ_QUOTE_APPROVE, json_body) catch return RfqError.RequestFailed;

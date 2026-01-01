@@ -263,7 +263,7 @@ pub const HttpClient = struct {
 
     /// Perform POST request with JSON body
     pub fn postJson(self: *HttpClient, path: []const u8, value: anytype, options: RequestOptions) !Response {
-        const body = try std.json.stringifyAlloc(self.allocator, value, .{});
+        const body = try std.json.Stringify.valueAlloc(self.allocator, value, .{});
         defer self.allocator.free(body);
 
         // Merge content-type header with existing headers
@@ -296,7 +296,7 @@ pub const HttpClient = struct {
 
     /// Perform DELETE request with JSON body
     pub fn deleteJson(self: *HttpClient, path: []const u8, value: anytype, options: RequestOptions) !Response {
-        const body = try std.json.stringifyAlloc(self.allocator, value, .{});
+        const body = try std.json.Stringify.valueAlloc(self.allocator, value, .{});
         defer self.allocator.free(body);
 
         var headers_list = try std.ArrayList(std.http.Header).initCapacity(self.allocator, 8);

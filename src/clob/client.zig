@@ -1051,7 +1051,7 @@ pub const ClobClient = struct {
             .orderType = order_type.toString(),
         };
 
-        const json_body = std.json.stringifyAlloc(self.allocator, request_body, .{}) catch return Error.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, request_body, .{}) catch return Error.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = try self.doAuthPost(Endpoints.ORDER, json_body);
@@ -1197,7 +1197,7 @@ pub const ClobClient = struct {
     pub fn cancelOrder(self: *ClobClient, order_id: []const u8) !types.CancelOrderResponse {
         const request_body = .{ .orderID = order_id };
 
-        const json_body = std.json.stringifyAlloc(self.allocator, request_body, .{}) catch return Error.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, request_body, .{}) catch return Error.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = try self.doAuthDelete(Endpoints.ORDER, json_body);
@@ -1217,7 +1217,7 @@ pub const ClobClient = struct {
     pub fn cancelOrders(self: *ClobClient, order_ids: []const []const u8) !types.CancelOrderResponse {
         const request_body = .{ .orderIDs = order_ids };
 
-        const json_body = std.json.stringifyAlloc(self.allocator, request_body, .{}) catch return Error.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, request_body, .{}) catch return Error.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = try self.doAuthDelete(Endpoints.ORDERS, json_body);
@@ -1250,7 +1250,7 @@ pub const ClobClient = struct {
     ///
     /// Requires L2 authentication.
     pub fn cancelMarketOrders(self: *ClobClient, params: types.CancelMarketOrdersRequest) !types.CancelOrderResponse {
-        const json_body = std.json.stringifyAlloc(self.allocator, params, .{}) catch return Error.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, params, .{}) catch return Error.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = try self.doAuthDelete(Endpoints.CANCEL_MARKET_ORDERS, json_body);
@@ -1377,7 +1377,7 @@ pub const ClobClient = struct {
     pub fn dropNotifications(self: *ClobClient, ids: []const []const u8) !types.DropNotificationsResponse {
         const request_body = .{ .ids = ids };
 
-        const json_body = std.json.stringifyAlloc(self.allocator, request_body, .{}) catch return Error.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, request_body, .{}) catch return Error.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = try self.doAuthDelete(Endpoints.NOTIFICATIONS, json_body);
@@ -1566,7 +1566,7 @@ pub const ClobClient = struct {
     pub fn revokeBuilderApiKey(self: *ClobClient, api_key: []const u8) !types.RevokeBuilderApiKeyResponse {
         const request_body = .{ .apiKey = api_key };
 
-        const json_body = std.json.stringifyAlloc(self.allocator, request_body, .{}) catch return Error.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, request_body, .{}) catch return Error.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = try self.doAuthDelete(Endpoints.BUILDER_API_KEY, json_body);
@@ -2131,7 +2131,7 @@ pub const ClobClient = struct {
     pub fn createReadonlyApiKey(self: *ClobClient, params: types.CreateReadonlyApiKeyParams) !types.CreateReadonlyApiKeyResponse {
         if (self.api_creds == null) return Error.Unauthorized;
 
-        const json_body = std.json.stringifyAlloc(self.allocator, params, .{}) catch return Error.OutOfMemory;
+        const json_body = std.json.Stringify.valueAlloc(self.allocator, params, .{}) catch return Error.OutOfMemory;
         defer self.allocator.free(json_body);
 
         const response_body = try self.doL2Post("/auth/readonly-api-key", json_body);

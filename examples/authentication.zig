@@ -7,20 +7,19 @@
 //!
 //! 注意: 此示例需要有效的私钥才能运行。
 //!
-//! 运行: zig build run-example-auth
+//! 运行: zig build run-authentication
 
 const std = @import("std");
+const poly = @import("poly_sdk_zig");
 
 // 导入模块
-const root = @import("../src/root.zig");
-const ClobClient = root.clob.ClobClient;
-const Wallet = root.signer.Wallet;
-const ApiCreds = root.auth.ApiCreds;
-const L1Auth = root.auth.L1Auth;
-const L2Auth = root.auth.L2Auth;
+const ClobClient = poly.ClobClient;
+const Wallet = poly.Wallet;
+const ApiCreds = poly.ApiCreds;
+const L1Auth = poly.L1Auth;
+const L2Auth = poly.L2Auth;
 
 pub fn main() !void {
-    
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();

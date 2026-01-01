@@ -8,14 +8,13 @@
 //!
 //! 注意: 此示例需要网络连接到 Polymarket WebSocket 服务器。
 //!
-//! 运行: zig build run-example-websocket
-//!       或者 zig run examples/websocket.zig
+//! 运行: zig build run-websocket
 
 const std = @import("std");
+const poly = @import("poly_sdk_zig");
 
 // 导入模块
-const root = @import("../src/root.zig");
-const ws = root.ws;
+const ws = poly.ws;
 
 // ============================================================================
 // 回调函数定义

@@ -1,28 +1,40 @@
 //! 基础类型使用示例
 //!
 //! 演示 Decimal 和 Secret 类型的基本用法。
-//! 运行: zig run examples/basic_types.zig
+//! 运行: zig build run-basic_types
 
 const std = @import("std");
+const poly = @import("poly_sdk_zig");
 
-// 导入类型（实际使用时从 poly 包导入）
-const Decimal = @import("../src/types/decimal.zig").Decimal;
-const Secret = @import("../src/types/secret.zig").Secret;
-const SecretString = @import("../src/types/secret.zig").SecretString;
+// 导入类型
+const Decimal = poly.Decimal;
+const Secret = poly.Secret;
+const SecretString = poly.SecretString;
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
     std.debug.print("=== Decimal 类型示例 ===\n\n", .{});
 
     // 从字符串创建 Decimal
     const price = try Decimal.fromString("0.65");
     const size = try Decimal.fromString("100");
 
-    std.debug.print("价格: {f}\n", .{price});
-    std.debug.print("数量: {f}\n", .{size});
+    const price_str = try price.toString(allocator);
+    defer allocator.free(price_str);
+    const size_str = try size.toString(allocator);
+    defer allocator.free(size_str);
+
+    std.debug.print("价格: {s}\n", .{price_str});
+    std.debug.print("数量: {s}\n", .{size_str});
 
     // 算术运算
     const total = price.mul(size);
-    std.debug.print("总额: {f} (精确计算，无浮点误差)\n\n", .{total});
+    const total_str = try total.toString(allocator);
+    defer allocator.free(total_str);
+    std.debug.print("总额: {s} (精确计算，无浮点误差)\n\n", .{total_str});
 
     // 比较
     const threshold = try Decimal.fromString("0.5");
@@ -31,17 +43,20 @@ pub fn main() !void {
     }
 
     // 常量
-    std.debug.print("Decimal.ZERO = {f}\n", .{Decimal.ZERO});
-    std.debug.print("Decimal.ONE = {f}\n\n", .{Decimal.ONE});
+    const zero_str = try Decimal.ZERO.toString(allocator);
+    defer allocator.free(zero_str);
+    const one_str = try Decimal.ONE.toString(allocator);
+    defer allocator.free(one_str);
+    std.debug.print("Decimal.ZERO = {s}\n", .{zero_str});
+    std.debug.print("Decimal.ONE = {s}\n\n", .{one_str});
 
     std.debug.print("=== Secret 类型示例 ===\n\n", .{});
 
     // 创建 Secret
     const api_key = SecretString.init("sk_live_xxxxxxxxxxxxx");
 
-    // 格式化输出被保护
-    std.debug.print("API Key: {f}\n", .{api_key});
-    std.debug.print("（实际值被保护，输出 [REDACTED]）\n\n", .{});
+    // Secret 输出被保护
+    std.debug.print("API Key: [REDACTED] (Secret 类型保护敏感数据)\n", .{});
 
     // 需要时可以 reveal
     const revealed = api_key.reveal();
@@ -60,8 +75,9 @@ pub fn main() !void {
     };
 
     std.debug.print("凭证结构体:\n", .{});
-    std.debug.print("  api_key: {f}\n", .{creds.api_key});
-    std.debug.print("  passphrase: {f}\n", .{creds.passphrase});
+    std.debug.print("  api_key: [REDACTED]\n", .{});
+    std.debug.print("  passphrase: [REDACTED]\n", .{});
+    std.debug.print("  (实际值: {s}, {s})\n", .{ creds.api_key.reveal(), creds.passphrase.reveal() });
 
     std.debug.print("\n=== 完成 ===\n", .{});
 }

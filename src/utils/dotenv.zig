@@ -102,30 +102,13 @@ pub const DotEnv = struct {
         };
         defer file.close();
 
-        return self.loadFromReader(file.reader());
-    }
+        // 读取整个文件内容
+        var content_buf: [65536]u8 = undefined; // 64KB 应该足够大部分 .env 文件
+        const bytes_read = file.readAll(&content_buf) catch {
+            return DotEnvError.IoError;
+        };
 
-    /// 从 Reader 加载环境变量
-    pub fn loadFromReader(self: *Self, reader: anytype) DotEnvError!usize {
-        var loaded_count: usize = 0;
-        var line_buf: [4096]u8 = undefined;
-
-        while (true) {
-            const line = reader.readUntilDelimiterOrEof(&line_buf, '\n') catch {
-                return DotEnvError.IoError;
-            } orelse break;
-
-            // 去除行尾的 \r (Windows 兼容)
-            const trimmed_line = std.mem.trimRight(u8, line, "\r");
-
-            if (self.parseLine(trimmed_line)) |_| {
-                loaded_count += 1;
-            } else |_| {
-                // 忽略解析错误的行（空行、注释等）
-            }
-        }
-
-        return loaded_count;
+        return self.loadFromString(content_buf[0..bytes_read]);
     }
 
     /// 从字符串加载环境变量

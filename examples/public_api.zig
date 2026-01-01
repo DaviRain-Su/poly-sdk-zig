@@ -5,18 +5,16 @@
 //!
 //! 注意: 此示例需要网络连接到 Polymarket API。
 //!
-//! 运行: zig build run-example-public-api
-//!       或者 zig run examples/public_api.zig
+//! 运行: zig build run-public_api
 
 const std = @import("std");
+const poly = @import("poly_sdk_zig");
 
 // 导入模块
-const root = @import("../src/root.zig");
-const ClobClient = root.clob.ClobClient;
-const Decimal = root.types.Decimal;
+const ClobClient = poly.ClobClient;
+const Decimal = poly.Decimal;
 
 pub fn main() !void {
-    
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();

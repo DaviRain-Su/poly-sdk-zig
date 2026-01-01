@@ -48,18 +48,17 @@
 //! - STRATEGY_POLL_INTERVAL: 监控间隔毫秒 (默认 500)
 
 const std = @import("std");
-const root = @import("../src/root.zig");
+const poly = @import("poly_sdk_zig");
 
 // 导入核心类型
-const ClobClient = root.clob.ClobClient;
-const Wallet = root.signer.Wallet;
-const ApiCreds = root.auth.ApiCreds;
-const Decimal = root.types.Decimal;
-const OrderBuilder = root.order.OrderBuilder;
-const Side = root.clob.types.Side;
-const OrderType = root.clob.types.OrderType;
-const TickSize = root.order.TickSize;
-const DotEnv = root.utils.DotEnv;
+const ClobClient = poly.ClobClient;
+const Wallet = poly.Wallet;
+const ApiCreds = poly.ApiCreds;
+const Decimal = poly.Decimal;
+const OrderBuilder = poly.OrderBuilder;
+const Side = poly.Side;
+const TickSize = poly.TickSize;
+const DotEnv = poly.DotEnv;
 
 // ============================================================================
 // 策略配置
@@ -195,7 +194,7 @@ const BtcHedgeStrategy = struct {
     }
 
     /// 获取订单簿
-    fn getOrderBook(self: *Self, token_id: []const u8) !std.json.Parsed(root.clob.types.OrderBookSummary) {
+    fn getOrderBook(self: *Self, token_id: []const u8) !std.json.Parsed(poly.clob.types.OrderBookSummary) {
         return self.client.getOrderBook(token_id);
     }
 
@@ -345,7 +344,7 @@ const BtcHedgeStrategy = struct {
             // 获取当前价格
             const current_price = self.getYesPrice() catch |err| {
                 log("获取价格失败: {}, 重试中...", .{err});
-                std.time.sleep(self.config.poll_interval_ms * std.time.ns_per_ms);
+                std.Thread.sleep(self.config.poll_interval_ms * std.time.ns_per_ms);
                 continue;
             };
 
@@ -395,7 +394,7 @@ const BtcHedgeStrategy = struct {
             }
 
             // 等待下一次检查
-            std.time.sleep(self.config.poll_interval_ms * std.time.ns_per_ms);
+            std.Thread.sleep(self.config.poll_interval_ms * std.time.ns_per_ms);
         }
 
         log("=== 策略结束 ===", .{});
@@ -463,7 +462,7 @@ pub fn main() !void {
     std.debug.print("1. 加载配置...\n", .{});
 
     // 加载 .env 文件 (如果存在)
-    var env = root.utils.loadEnvOrEmpty(allocator, ".env");
+    var env = poly.loadEnvOrEmpty(allocator, ".env");
     defer env.deinit();
 
     // 检查是否成功加载 .env

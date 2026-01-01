@@ -357,18 +357,26 @@ pub const Decimal = struct {
         // Estimate max size: sign + digits + '.' + scale digits
         const max_size: usize = 1 + 39 + 1 + self.scale; // i128 has up to 39 digits
         var buffer = try std.ArrayList(u8).initCapacity(allocator, max_size);
-        errdefer buffer.deinit();
+        errdefer buffer.deinit(allocator);
 
-        try self.format("{}", .{}, buffer.writer());
+        // 使用 fixedBufferStream 作为中间缓冲
+        var temp_buf: [64]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&temp_buf);
+        self.format("{}", .{}, fbs.writer()) catch return error.BufferTooSmall;
+
+        // 复制到 ArrayList
+        try buffer.appendSlice(allocator, fbs.getWritten());
         return try buffer.toOwnedSlice(allocator);
     }
 
     /// JSON serialization (as quoted string)
-    pub fn jsonStringify(self: Decimal, options: std.json.StringifyOptions, writer: anytype) !void {
+    pub fn jsonStringify(self: Decimal, options: std.json.Stringify.Options, jw: *std.json.Stringify) !void {
         _ = options;
-        try writer.writeByte('"');
-        try self.format("{}", .{}, writer);
-        try writer.writeByte('"');
+        // 使用临时缓冲区
+        var temp_buf: [64]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&temp_buf);
+        self.format("{}", .{}, fbs.writer()) catch return error.BufferTooSmall;
+        try jw.write(fbs.getWritten());
     }
 
     /// JSON deserialization

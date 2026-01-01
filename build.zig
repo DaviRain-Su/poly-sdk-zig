@@ -142,6 +142,85 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 
+    // =========================================================================
+    // Examples
+    // =========================================================================
+
+    // Example definitions
+    const examples = [_]struct {
+        name: []const u8,
+        source: []const u8,
+        description: []const u8,
+    }{
+        .{
+            .name = "basic_types",
+            .source = "examples/basic_types.zig",
+            .description = "Run basic types example (Decimal, Address, UUID, Secret)",
+        },
+        .{
+            .name = "public_api",
+            .source = "examples/public_api.zig",
+            .description = "Run public API example (markets, prices, order book)",
+        },
+        .{
+            .name = "authentication",
+            .source = "examples/authentication.zig",
+            .description = "Run authentication example (L1/L2 auth)",
+        },
+        .{
+            .name = "order_management",
+            .source = "examples/order_management.zig",
+            .description = "Run order management example (create, post, cancel orders)",
+        },
+        .{
+            .name = "websocket",
+            .source = "examples/websocket.zig",
+            .description = "Run WebSocket example (real-time data subscription)",
+        },
+        .{
+            .name = "btc_hedge_strategy",
+            .source = "examples/btc_hedge_strategy.zig",
+            .description = "Run BTC hedge strategy (binary options arbitrage)",
+        },
+    };
+
+    // Create a step to build and install all examples
+    const examples_step = b.step("examples", "Build all examples");
+
+    // Create individual example executables
+    for (examples) |example| {
+        const example_exe = b.addExecutable(.{
+            .name = example.name,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(example.source),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "poly_sdk_zig", .module = mod },
+                },
+            }),
+        });
+
+        // Install the example executable
+        const install_example = b.addInstallArtifact(example_exe, .{});
+        examples_step.dependOn(&install_example.step);
+
+        // Create a run step for each example
+        const run_example = b.addRunArtifact(example_exe);
+        run_example.step.dependOn(b.getInstallStep());
+
+        // Allow passing arguments
+        if (b.args) |args| {
+            run_example.addArgs(args);
+        }
+
+        // Create a named step for running each example
+        // e.g., `zig build run-basic_types`
+        const run_name = b.fmt("run-{s}", .{example.name});
+        const run_step_example = b.step(run_name, example.description);
+        run_step_example.dependOn(&run_example.step);
+    }
+
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
     // The Zig build system is entirely implemented in userland, which means

@@ -4,22 +4,20 @@
 //!
 //! 注意: 此示例需要有效的 API 凭证和网络连接。
 //!
-//! 运行: zig build run-example-orders
+//! 运行: zig build run-order_management
 
 const std = @import("std");
+const poly = @import("poly_sdk_zig");
 
-// 导入模块
-// 以下类型在实际使用时需要
-// const root = @import("../src/root.zig");
-// const ClobClient = root.clob.ClobClient;
-// const Wallet = root.signer.Wallet;
-// const ApiCreds = root.auth.ApiCreds;
-// const Decimal = root.types.Decimal;
-// const OrderBuilder = root.order.OrderBuilder;
-// const Side = root.clob.types.Side;
+// 导入模块 (实际使用时需要)
+const ClobClient = poly.ClobClient;
+const Wallet = poly.Wallet;
+const ApiCreds = poly.ApiCreds;
+const Decimal = poly.Decimal;
+const OrderBuilder = poly.OrderBuilder;
+const Side = poly.Side;
 
 pub fn main() !void {
-    
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     _ = gpa.allocator(); // 实际使用时需要
