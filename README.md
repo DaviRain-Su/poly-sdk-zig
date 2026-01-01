@@ -3,7 +3,7 @@
 [![Zig](https://img.shields.io/badge/Zig-0.15.2+-orange)](https://ziglang.org/)
 [![CI](https://github.com/anthropics/poly-sdk-zig/actions/workflows/ci.yml/badge.svg)](https://github.com/anthropics/poly-sdk-zig/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-365%20passing-brightgreen)](https://github.com/anthropics/poly-sdk-zig)
+[![Tests](https://img.shields.io/badge/tests-371%20passing-brightgreen)](https://github.com/anthropics/poly-sdk-zig)
 
 Polymarket CLOB API 的原生 Zig 客户端。
 

@@ -75,7 +75,7 @@
 | `/sampling-markets` | GET | `get_sampling_markets()` | `getSamplingMarkets()` | v0.1 ✅ |
 | `/sampling-simplified-markets` | GET | `get_sampling_simplified_markets()` | `getSamplingSimplifiedMarkets()` | v0.1 ✅ |
 | `/markets/{condition_id}` | GET | `get_market()` | `getMarket()` | v0.1 ✅ |
-| `/live-activity/events/{condition_id}` | GET | `get_market_trades_events()` | `getMarketTradesEvents()` | v0.5 ⏳ |
+| `/live-activity/events/{condition_id}` | GET | `get_market_trades_events()` | `getMarketTradesEvents()` | v0.5 ✅ |
 
 ### 价格和订单簿
 
@@ -94,13 +94,13 @@
 | `/tick-size` | GET | `get_tick_size()` | `getTickSize()` | v0.1 ✅ |
 | `/neg-risk` | GET | `get_neg_risk()` | `getNegRisk()` | v0.1 ✅ |
 | `/fee-rate` | GET | `get_fee_rate_bps()` | `getFeeRateBps()` | v0.1 ✅ |
-| `/prices-history` | GET | - | `getPricesHistory()` | v0.5 ⏳ |
+| `/prices-history` | GET | - | `getPricesHistory()` | v0.5 ⏳ (未计划) |
 
 ### Readonly API Key 验证
 
 | 端点 | 方法 | Python | TypeScript | Zig ROADMAP |
 |------|------|--------|------------|-------------|
-| `/auth/validate-readonly-api-key` | GET | `validate_readonly_api_key()` | `validateReadonlyApiKey()` | v0.3 ⏳ |
+| `/auth/validate-readonly-api-key` | GET | `validate_readonly_api_key()` | `validateReadonlyApiKey()` | v0.3 ✅ |
 
 ---
 
@@ -138,9 +138,9 @@
 
 | 端点 | 方法 | Python | TypeScript | Zig ROADMAP |
 |------|------|--------|------------|-------------|
-| `/auth/readonly-api-key` | POST | `create_readonly_api_key()` | `createReadonlyApiKey()` | v0.3 ⏳ |
-| `/auth/readonly-api-keys` | GET | `get_readonly_api_keys()` | `getReadonlyApiKeys()` | v0.3 ⏳ |
-| `/auth/readonly-api-key` | DELETE | `delete_readonly_api_key()` | `deleteReadonlyApiKey()` | v0.3 ⏳ |
+| `/auth/readonly-api-key` | POST | `create_readonly_api_key()` | `createReadonlyApiKey()` | v0.3 ✅ |
+| `/auth/readonly-api-keys` | GET | `get_readonly_api_keys()` | `getReadonlyApiKeys()` | v0.3 ✅ |
+| `/auth/readonly-api-key` | DELETE | `delete_readonly_api_key()` | `deleteReadonlyApiKey()` | v0.3 ✅ |
 
 ### 订单管理
 
@@ -182,8 +182,8 @@
 
 | 端点 | 方法 | Python | TypeScript | Zig ROADMAP |
 |------|------|--------|------------|-------------|
-| `/order-scoring` | GET | `is_order_scoring()` | `isOrderScoring()` | v0.5 ⏳ |
-| `/orders-scoring` | POST | `are_orders_scoring()` | `areOrdersScoring()` | v0.5 ⏳ |
+| `/order-scoring` | GET | `is_order_scoring()` | `isOrderScoring()` | v0.5 ✅ |
+| `/orders-scoring` | POST | `are_orders_scoring()` | `areOrdersScoring()` | v0.5 ✅ |
 
 ### Heartbeat
 

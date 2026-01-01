@@ -84,7 +84,7 @@ docs/
 | `src/types/address.zig` | [types/address.md](./types/address.md) | ✅ |
 | `src/types/uuid.zig` | [types/uuid.md](./types/uuid.md) | ✅ |
 | `src/types/mod.zig` | - | ✅ |
-| `src/types/contracts.zig` | [design/contracts.md](./design/contracts.md) | ⏳ 未实现 |
+| `src/types/contracts.zig` | [design/contracts.md](./design/contracts.md) | ✅ |
 
 ### crypto/ - 加密模块
 
