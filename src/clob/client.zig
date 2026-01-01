@@ -391,16 +391,19 @@ pub const ClobClient = struct {
     /// Perform authenticated GET request
     fn doAuthGet(self: *ClobClient, path: []const u8) ![]u8 {
         const creds = self.api_creds orelse return Error.Unauthorized;
+        const wallet = self.wallet orelse return Error.Unauthorized;
 
         const url = try self.buildUrl(path);
         defer self.allocator.free(url);
 
-        // Generate L2 auth header
+        // Generate L2 auth header (需要钱包地址)
         const l2 = L2Auth.init(creds);
+        const address = wallet.getAddressChecksumHex();
         const auth_header = l2.generateHeader(.{
             .method = "GET",
             .path = path,
             .body = null,
+            .address = &address,
         }) catch return Error.Unauthorized;
 
         const poly_headers = auth_header.toHttpHeaders();
@@ -416,6 +419,7 @@ pub const ClobClient = struct {
                 poly_headers[1],
                 poly_headers[2],
                 poly_headers[3],
+                poly_headers[4],
             },
         }) catch |err| {
             return switch (err) {
@@ -442,16 +446,19 @@ pub const ClobClient = struct {
     /// Perform authenticated POST request
     fn doAuthPost(self: *ClobClient, path: []const u8, body: []const u8) ![]u8 {
         const creds = self.api_creds orelse return Error.Unauthorized;
+        const wallet = self.wallet orelse return Error.Unauthorized;
 
         const url = try self.buildUrl(path);
         defer self.allocator.free(url);
 
-        // Generate L2 auth header
+        // Generate L2 auth header (需要钱包地址)
         const l2 = L2Auth.init(creds);
+        const address = wallet.getAddressChecksumHex();
         const auth_header = l2.generateHeader(.{
             .method = "POST",
             .path = path,
             .body = body,
+            .address = &address,
         }) catch return Error.Unauthorized;
 
         const poly_headers = auth_header.toHttpHeaders();
@@ -467,6 +474,7 @@ pub const ClobClient = struct {
                 poly_headers[1],
                 poly_headers[2],
                 poly_headers[3],
+                poly_headers[4],
             },
         }) catch |err| {
             return switch (err) {
@@ -501,16 +509,19 @@ pub const ClobClient = struct {
     /// Perform authenticated DELETE request
     fn doAuthDelete(self: *ClobClient, path: []const u8, body: ?[]const u8) ![]u8 {
         const creds = self.api_creds orelse return Error.Unauthorized;
+        const wallet = self.wallet orelse return Error.Unauthorized;
 
         const url = try self.buildUrl(path);
         defer self.allocator.free(url);
 
-        // Generate L2 auth header
+        // Generate L2 auth header (需要钱包地址)
         const l2 = L2Auth.init(creds);
+        const address = wallet.getAddressChecksumHex();
         const auth_header = l2.generateHeader(.{
             .method = "DELETE",
             .path = path,
             .body = body,
+            .address = &address,
         }) catch return Error.Unauthorized;
 
         const poly_headers = auth_header.toHttpHeaders();
@@ -526,6 +537,7 @@ pub const ClobClient = struct {
                 poly_headers[1],
                 poly_headers[2],
                 poly_headers[3],
+                poly_headers[4],
             },
         }) catch |err| {
             return switch (err) {

@@ -44,6 +44,9 @@ pub const L2AuthRequestOptions = struct {
     path: []const u8,
     /// 请求体（可选，用于 POST/PUT 请求）
     body: ?[]const u8 = null,
+    /// 钱包地址（EIP-55 校验和格式，如 "0x..."）
+    /// L2 认证需要在 Header 中包含钱包地址
+    address: []const u8,
 };
 
 /// L2 认证器
@@ -92,12 +95,20 @@ pub const L2Auth = struct {
 
         // 构建 Header
         var header = L2PolyHeader{
+            .poly_address = undefined,
             .poly_api_key = self.creds.getApiKey(),
             .poly_signature = undefined,
             .poly_timestamp = undefined,
             .poly_timestamp_len = timestamp_str.len,
             .poly_passphrase = self.creds.getApiPassphrase(),
         };
+
+        // 复制钱包地址（必须是 42 字符: 0x + 40 hex）
+        if (options.address.len == 42) {
+            @memcpy(&header.poly_address, options.address[0..42]);
+        } else {
+            return L2AuthError.SigningFailed;
+        }
 
         @memcpy(&header.poly_signature, signature);
         @memcpy(header.poly_timestamp[0..timestamp_str.len], timestamp_str);
@@ -213,6 +224,7 @@ test "L2Auth.init" {
 
 test "L2Auth.generateHeaderWithTimestamp GET" {
     const allocator = std.testing.allocator;
+    const test_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
     var creds = try ApiCreds.init(
         allocator,
@@ -228,9 +240,11 @@ test "L2Auth.generateHeaderWithTimestamp GET" {
         .method = "GET",
         .path = "/data/orders",
         .body = null,
+        .address = test_address,
     }, 1704067200);
 
     // 验证基本字段
+    try std.testing.expectEqualStrings(test_address, header.getAddress());
     try std.testing.expectEqualStrings("my-api-key", header.getApiKey());
     try std.testing.expectEqualStrings("1704067200", header.getTimestamp());
     try std.testing.expectEqualStrings("my-passphrase", header.getPassphrase());
@@ -242,6 +256,7 @@ test "L2Auth.generateHeaderWithTimestamp GET" {
 
 test "L2Auth.generateHeaderWithTimestamp POST with body" {
     const allocator = std.testing.allocator;
+    const test_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
     var creds = try ApiCreds.init(
         allocator,
@@ -259,6 +274,7 @@ test "L2Auth.generateHeaderWithTimestamp POST with body" {
         .method = "POST",
         .path = "/order",
         .body = body,
+        .address = test_address,
     }, 1704067200);
 
     try std.testing.expectEqualStrings("1704067200", header.getTimestamp());
@@ -267,6 +283,7 @@ test "L2Auth.generateHeaderWithTimestamp POST with body" {
 
 test "L2Auth signature determinism" {
     const allocator = std.testing.allocator;
+    const test_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
     var creds = try ApiCreds.init(
         allocator,
@@ -283,12 +300,14 @@ test "L2Auth signature determinism" {
         .method = "GET",
         .path = "/test",
         .body = null,
+        .address = test_address,
     }, 1704067200);
 
     const header2 = try l2.generateHeaderWithTimestamp(.{
         .method = "GET",
         .path = "/test",
         .body = null,
+        .address = test_address,
     }, 1704067200);
 
     try std.testing.expectEqualStrings(header1.getSignature(), header2.getSignature());
@@ -296,6 +315,7 @@ test "L2Auth signature determinism" {
 
 test "L2Auth signature differs with different params" {
     const allocator = std.testing.allocator;
+    const test_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
     var creds = try ApiCreds.init(
         allocator,
@@ -312,12 +332,14 @@ test "L2Auth signature differs with different params" {
         .method = "GET",
         .path = "/test",
         .body = null,
+        .address = test_address,
     }, 1704067200);
 
     const header2 = try l2.generateHeaderWithTimestamp(.{
         .method = "GET",
         .path = "/test",
         .body = null,
+        .address = test_address,
     }, 1704067201);
 
     try std.testing.expect(!std.mem.eql(u8, header1.getSignature(), header2.getSignature()));
@@ -327,6 +349,7 @@ test "L2Auth signature differs with different params" {
         .method = "GET",
         .path = "/other",
         .body = null,
+        .address = test_address,
     }, 1704067200);
 
     try std.testing.expect(!std.mem.eql(u8, header1.getSignature(), header3.getSignature()));
@@ -336,6 +359,7 @@ test "L2Auth signature differs with different params" {
         .method = "POST",
         .path = "/test",
         .body = null,
+        .address = test_address,
     }, 1704067200);
 
     try std.testing.expect(!std.mem.eql(u8, header1.getSignature(), header4.getSignature()));
@@ -343,6 +367,7 @@ test "L2Auth signature differs with different params" {
 
 test "L2Auth signature with body vs without" {
     const allocator = std.testing.allocator;
+    const test_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
     var creds = try ApiCreds.init(
         allocator,
@@ -358,12 +383,14 @@ test "L2Auth signature with body vs without" {
         .method = "POST",
         .path = "/order",
         .body = null,
+        .address = test_address,
     }, 1704067200);
 
     const header2 = try l2.generateHeaderWithTimestamp(.{
         .method = "POST",
         .path = "/order",
         .body = "{}",
+        .address = test_address,
     }, 1704067200);
 
     // 有无 body 应产生不同签名
@@ -372,6 +399,7 @@ test "L2Auth signature with body vs without" {
 
 test "L2Auth.toHttpHeaders" {
     const allocator = std.testing.allocator;
+    const test_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
     var creds = try ApiCreds.init(
         allocator,
@@ -387,15 +415,17 @@ test "L2Auth.toHttpHeaders" {
         .method = "GET",
         .path = "/test",
         .body = null,
+        .address = test_address,
     }, 1704067200);
 
     const http_headers = header.toHttpHeaders();
 
-    try std.testing.expectEqual(@as(usize, 4), http_headers.len);
-    try std.testing.expectEqualStrings("POLY_API_KEY", http_headers[0].name);
-    try std.testing.expectEqualStrings("POLY_SIGNATURE", http_headers[1].name);
-    try std.testing.expectEqualStrings("POLY_TIMESTAMP", http_headers[2].name);
-    try std.testing.expectEqualStrings("POLY_PASSPHRASE", http_headers[3].name);
+    try std.testing.expectEqual(@as(usize, 5), http_headers.len);
+    try std.testing.expectEqualStrings("POLY_ADDRESS", http_headers[0].name);
+    try std.testing.expectEqualStrings("POLY_API_KEY", http_headers[1].name);
+    try std.testing.expectEqualStrings("POLY_SIGNATURE", http_headers[2].name);
+    try std.testing.expectEqualStrings("POLY_TIMESTAMP", http_headers[3].name);
+    try std.testing.expectEqualStrings("POLY_PASSPHRASE", http_headers[4].name);
 }
 
 test "buildSignatureMessage" {
@@ -418,6 +448,7 @@ test "buildSignatureMessage" {
 
 test "L2Auth signature matches expected format" {
     const allocator = std.testing.allocator;
+    const test_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
     var creds = try ApiCreds.init(
         allocator,
@@ -433,6 +464,7 @@ test "L2Auth signature matches expected format" {
         .method = "GET",
         .path = "/",
         .body = null,
+        .address = test_address,
     }, 1704067200);
 
     // 签名应该是 URL-safe Base64 格式
@@ -452,6 +484,7 @@ test "L2Auth signature matches expected format" {
 test "L2Auth signature matches Rust reference implementation" {
     // 这个测试用例来自 Rust 参考实现 (rs-clob-client/src/auth.rs)
     // 测试数据:
+    //   address: 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
     //   secret: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" (全 0 的 32 字节)
     //   timestamp: 1
     //   method: GET
@@ -459,6 +492,7 @@ test "L2Auth signature matches Rust reference implementation" {
     //   body: null
     //   expected signature: "eHaylCwqRSOa2LFD77Nt_SaTpbsxzN8eTEI3LryhEj4="
     const allocator = std.testing.allocator;
+    const test_address = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
 
     var creds = try ApiCreds.init(
         allocator,
@@ -474,6 +508,7 @@ test "L2Auth signature matches Rust reference implementation" {
         .method = "GET",
         .path = "/",
         .body = null,
+        .address = test_address,
     }, 1); // timestamp = 1
 
     // 这个预期值来自 Rust 测试: l2_headers_should_succeed

@@ -69,13 +69,23 @@ pub const L1PolyHeader = struct {
 
 /// L2 认证 Header
 ///
-/// 用于 L2 认证的 HTTP Header，包含 API Key、HMAC 签名、时间戳和 passphrase。
+/// 用于 L2 认证的 HTTP Header，包含钱包地址、API Key、HMAC 签名、时间戳和 passphrase。
 /// L2 认证用于所有需要认证的 API 请求。
+///
+/// 注意：L2 认证需要 5 个 Header（不是 4 个）：
+/// - POLY_ADDRESS: 钱包地址
+/// - POLY_API_KEY: API Key
+/// - POLY_SIGNATURE: HMAC-SHA256 签名
+/// - POLY_TIMESTAMP: 时间戳
+/// - POLY_PASSPHRASE: 密码短语
 pub const L2PolyHeader = struct {
+    /// 钱包地址（带 0x 前缀，EIP-55 校验和格式）
+    poly_address: [42]u8,
+
     /// API Key
     poly_api_key: []const u8,
 
-    /// HMAC-SHA256 签名（Base64 编码）
+    /// HMAC-SHA256 签名（URL-safe Base64 编码）
     poly_signature: [44]u8, // Base64 of 32 bytes = 44 chars
 
     /// Unix 时间戳（秒）
@@ -88,10 +98,16 @@ pub const L2PolyHeader = struct {
     const Self = @This();
 
     /// Header 名称常量
+    pub const HEADER_ADDRESS = "POLY_ADDRESS";
     pub const HEADER_API_KEY = "POLY_API_KEY";
     pub const HEADER_SIGNATURE = "POLY_SIGNATURE";
     pub const HEADER_TIMESTAMP = "POLY_TIMESTAMP";
     pub const HEADER_PASSPHRASE = "POLY_PASSPHRASE";
+
+    /// 获取钱包地址
+    pub fn getAddress(self: *const Self) []const u8 {
+        return &self.poly_address;
+    }
 
     /// 获取 API Key
     pub fn getApiKey(self: *const Self) []const u8 {
@@ -113,9 +129,10 @@ pub const L2PolyHeader = struct {
         return self.poly_passphrase;
     }
 
-    /// 转换为 HTTP Header 数组
-    pub fn toHttpHeaders(self: *const Self) [4]std.http.Header {
-        return [4]std.http.Header{
+    /// 转换为 HTTP Header 数组（5 个 Header）
+    pub fn toHttpHeaders(self: *const Self) [5]std.http.Header {
+        return [5]std.http.Header{
+            .{ .name = HEADER_ADDRESS, .value = self.getAddress() },
             .{ .name = HEADER_API_KEY, .value = self.getApiKey() },
             .{ .name = HEADER_SIGNATURE, .value = self.getSignature() },
             .{ .name = HEADER_TIMESTAMP, .value = self.getTimestamp() },
@@ -192,16 +209,21 @@ test "L1PolyHeader.toHttpHeaders" {
 }
 
 test "L2PolyHeader creation" {
+    const address = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
     const api_key = "test-api-key";
     const passphrase = "test-passphrase";
 
     var header = L2PolyHeader{
+        .poly_address = undefined,
         .poly_api_key = api_key,
         .poly_signature = undefined,
         .poly_timestamp = undefined,
         .poly_timestamp_len = 10,
         .poly_passphrase = passphrase,
     };
+
+    // 设置地址
+    @memcpy(&header.poly_address, address);
 
     // 设置签名（44 字符 Base64）
     const sig = "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=";
@@ -209,6 +231,7 @@ test "L2PolyHeader creation" {
 
     @memcpy(header.poly_timestamp[0..10], "1704067200");
 
+    try std.testing.expectEqualStrings(address, header.getAddress());
     try std.testing.expectEqualStrings(api_key, header.getApiKey());
     try std.testing.expectEqualStrings(sig, header.getSignature());
     try std.testing.expectEqualStrings("1704067200", header.getTimestamp());
@@ -216,10 +239,12 @@ test "L2PolyHeader creation" {
 }
 
 test "L2PolyHeader.toHttpHeaders" {
+    const address = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
     const api_key = "my-key";
     const passphrase = "my-pass";
 
     var header = L2PolyHeader{
+        .poly_address = undefined,
         .poly_api_key = api_key,
         .poly_signature = undefined,
         .poly_timestamp = undefined,
@@ -227,16 +252,18 @@ test "L2PolyHeader.toHttpHeaders" {
         .poly_passphrase = passphrase,
     };
 
+    @memcpy(&header.poly_address, address);
     @memcpy(&header.poly_signature, "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=");
     @memcpy(header.poly_timestamp[0..10], "1704067200");
 
     const headers = header.toHttpHeaders();
 
-    try std.testing.expectEqual(@as(usize, 4), headers.len);
-    try std.testing.expectEqualStrings("POLY_API_KEY", headers[0].name);
-    try std.testing.expectEqualStrings("POLY_SIGNATURE", headers[1].name);
-    try std.testing.expectEqualStrings("POLY_TIMESTAMP", headers[2].name);
-    try std.testing.expectEqualStrings("POLY_PASSPHRASE", headers[3].name);
+    try std.testing.expectEqual(@as(usize, 5), headers.len);
+    try std.testing.expectEqualStrings("POLY_ADDRESS", headers[0].name);
+    try std.testing.expectEqualStrings("POLY_API_KEY", headers[1].name);
+    try std.testing.expectEqualStrings("POLY_SIGNATURE", headers[2].name);
+    try std.testing.expectEqualStrings("POLY_TIMESTAMP", headers[3].name);
+    try std.testing.expectEqualStrings("POLY_PASSPHRASE", headers[4].name);
 }
 
 test "Header name constants" {

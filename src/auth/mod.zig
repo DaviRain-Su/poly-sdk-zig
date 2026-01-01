@@ -170,10 +170,12 @@ test "auth module L2Auth" {
     try std.testing.expectEqualStrings("test-key", l2_auth.getApiKey());
 
     // 测试生成 Header
+    const test_address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
     const header = try l2_auth.generateHeaderWithTimestamp(.{
         .method = "GET",
         .path = "/test",
         .body = null,
+        .address = test_address,
     }, 1704067200);
 
     try std.testing.expectEqualStrings("1704067200", header.getTimestamp());
