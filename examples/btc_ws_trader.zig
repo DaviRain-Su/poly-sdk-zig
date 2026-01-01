@@ -1,16 +1,27 @@
-//! BTC 15分钟市场 WebSocket 智能交易系统
+//! BTC 15分钟市场两步对冲套利机器人
 //!
-//! 使用 WebSocket 实时数据流替代 REST API 轮询：
-//! - 更低延迟：毫秒级价格更新
-//! - 更少 API 调用：减少请求次数和限流风险
-//! - 更及时响应：实时接收订单簿变化
+//! 策略核心逻辑：
+//! 1. 第一步：捕捉早期暴跌，低价买入 YES(UP) 股份
+//!    - 持续监控市场概率（YES 股份价格，范围 0-1）
+//!    - 当检测到价格快速大幅下跌（由 move 参数控制）
+//!    - 在价格跌到足够低时（由 sumTarget 控制累计买入量）买入 YES
+//!
+//! 2. 第二步：价格反弹后，对冲卖出 NO(DOWN) 股份锁定利润
+//!    - 买入 YES 后继续监控价格
+//!    - 价格反弹高于买入均价时，卖出等量 NO 股份
+//!    - 效果：YES + NO = 1，锁定利润
+//!
+//! 关键参数：
+//! - sumTarget: 目标累计买入量（0.3 保守，0.6 激进）
+//! - move: 触发监控的价格下跌幅度（如 0.01 = 1%）
 //!
 //! 运行: zig build run-btc_ws_trader
 //!
 //! 配置（.env 文件）：
 //! - POLY_PRIVATE_KEY: 钱包私钥
 //! - WS_TRADER_DRY_RUN: 模拟模式（默认 true）
-//! - WS_TRADER_MODE: 策略模式 (hybrid/trend/arbitrage)
+//! - WS_TRADER_SUM_TARGET: 目标累计买入量（默认 0.3）
+//! - WS_TRADER_MOVE: 触发下跌幅度（默认 0.01）
 
 const std = @import("std");
 const poly = @import("poly_sdk_zig");
@@ -29,38 +40,60 @@ const BookMessage = ws.BookMessage;
 const PriceChangeMessage = ws.PriceChangeMessage;
 
 // ============================================================================
-// 配置
+// 策略配置
 // ============================================================================
 
 /// 签名类型 (0=EOA, 1=POLY_PROXY, 2=POLY_GNOSIS_SAFE)
 const SignatureType = poly.order.types.SignatureType;
 
-const WsTraderConfig = struct {
+const StrategyConfig = struct {
     /// 模拟模式（不实际下单）
     dry_run: bool = true,
 
-    /// 最小剩余时间（分钟）
-    min_remaining_minutes: i64 = 5,
+    /// ========== 核心策略参数 ==========
+    /// sumTarget: 目标累计买入量（控制激进程度）
+    /// - 0.3 = 保守，只在极低价时才重仓买入
+    /// - 0.6 = 激进，可能导致大幅亏损
+    /// 建议从 0.3 开始
+    sum_target: f64 = 0.3,
 
-    /// 边缘价格阈值（忽略低于此价格的买单和高于 1-此价格 的卖单）
-    edge_price_threshold: f64 = 0.20,
+    /// move: 触发监控的价格下跌幅度
+    /// - 0.01 = 1% 下跌触发
+    /// - 0.02 = 2% 下跌触发
+    move_threshold: f64 = 0.01,
 
-    /// 概率偏差阈值（触发交易的 UP 概率阈值）
-    prob_bias_threshold: f64 = 0.55,
+    /// 对冲触发条件：价格反弹超过买入均价的比例
+    /// - 0.05 = 价格比买入均价高 5% 时对冲
+    hedge_profit_threshold: f64 = 0.05,
 
-    /// 单次订单金额
-    order_size: f64 = 50.0,
+    /// ========== 交易参数 ==========
+    /// 单次最小订单金额（美元）
+    min_order_size: f64 = 5.0,
 
-    /// 最大仓位
+    /// 单次最大订单金额（美元）
+    max_order_size: f64 = 50.0,
+
+    /// 最大总仓位（美元）
     max_position: f64 = 200.0,
 
+    /// ========== 市场参数 ==========
+    /// 最小剩余时间（分钟）
+    min_remaining_minutes: i64 = 3,
+
+    /// 边缘价格阈值（忽略低于此价格的买单）
+    edge_price_threshold: f64 = 0.05,
+
+    /// 最大价差（超过则不交易）
+    max_spread: f64 = 0.10,
+
+    /// ========== 系统参数 ==========
     /// 是否使用测试网
     use_testnet: bool = false,
 
-    /// 签名类型 (0=EOA, 1=POLY_PROXY, 2=POLY_GNOSIS_SAFE)
+    /// 签名类型
     signature_type: SignatureType = .EOA,
 
-    /// Funder/Proxy 地址（用于 POLY_PROXY 或 POLY_GNOSIS_SAFE）
+    /// Funder/Proxy 地址
     funder: ?[20]u8 = null,
 };
 
@@ -97,65 +130,104 @@ const MarketInfo = struct {
     }
 };
 
-/// 实时订单簿状态（由 WebSocket 更新）
+/// 实时订单簿状态
 const LiveOrderBook = struct {
-    // UP Token
+    // UP Token (YES)
     up_best_bid: f64 = 0,
     up_best_ask: f64 = 1,
     up_mid_price: f64 = 0.5,
-    up_bid_depth: f64 = 0,
-    up_ask_depth: f64 = 0,
 
-    // DOWN Token
+    // DOWN Token (NO)
     down_best_bid: f64 = 0,
     down_best_ask: f64 = 1,
     down_mid_price: f64 = 0.5,
-    down_bid_depth: f64 = 0,
-    down_ask_depth: f64 = 0,
 
     // 更新时间戳
     last_update: i64 = 0,
     update_count: u64 = 0,
 
-    pub fn probabilitySum(self: *const LiveOrderBook) f64 {
-        return self.up_mid_price + self.down_mid_price;
+    pub fn yesPrice(self: *const LiveOrderBook) f64 {
+        return self.up_mid_price;
     }
 
-    pub fn hasArbitrage(self: *const LiveOrderBook, threshold: f64) bool {
-        const sum = self.probabilitySum();
-        return sum < (1.0 - threshold) or sum > (1.0 + threshold);
+    pub fn noPrice(self: *const LiveOrderBook) f64 {
+        return self.down_mid_price;
     }
 };
 
-/// 持仓状态
-const Position = struct {
-    up_shares: f64 = 0,
-    up_cost: f64 = 0,
-    down_shares: f64 = 0,
-    down_cost: f64 = 0,
+/// 策略阶段
+const StrategyPhase = enum {
+    /// 等待暴跌信号
+    waiting_for_crash,
+    /// 暴跌中，正在买入 YES
+    buying_yes,
+    /// 持有 YES，等待反弹对冲
+    waiting_for_rebound,
+    /// 已对冲，锁定利润
+    hedged,
+};
 
-    pub fn totalCost(self: *const Position) f64 {
-        return self.up_cost + self.down_cost;
+/// YES 持仓状态
+const YesPosition = struct {
+    /// 持有的 YES 股数
+    shares: f64 = 0,
+    /// 总成本（美元）
+    total_cost: f64 = 0,
+    /// 买入次数
+    buy_count: u32 = 0,
+
+    /// 买入均价
+    pub fn avgPrice(self: *const YesPosition) f64 {
+        if (self.shares <= 0) return 0;
+        return self.total_cost / self.shares;
     }
 
-    pub fn reset(self: *Position) void {
-        self.up_shares = 0;
-        self.up_cost = 0;
-        self.down_shares = 0;
-        self.down_cost = 0;
+    /// 添加买入
+    pub fn addBuy(self: *YesPosition, shares: f64, cost: f64) void {
+        self.shares += shares;
+        self.total_cost += cost;
+        self.buy_count += 1;
+    }
+
+    /// 重置
+    pub fn reset(self: *YesPosition) void {
+        self.shares = 0;
+        self.total_cost = 0;
+        self.buy_count = 0;
+    }
+};
+
+/// NO 对冲仓位
+const NoPosition = struct {
+    /// 卖出的 NO 股数（做空）
+    shares: f64 = 0,
+    /// 卖出收入（美元）
+    total_revenue: f64 = 0,
+
+    /// 添加卖出
+    pub fn addSell(self: *NoPosition, shares: f64, revenue: f64) void {
+        self.shares += shares;
+        self.total_revenue += revenue;
+    }
+
+    /// 重置
+    pub fn reset(self: *NoPosition) void {
+        self.shares = 0;
+        self.total_revenue = 0;
     }
 };
 
 /// 交易统计
 const TradingStats = struct {
     markets_traded: u32 = 0,
-    total_trades: u32 = 0,
-    ws_messages_received: u64 = 0,
-    signals_generated: u32 = 0,
+    crashes_detected: u32 = 0,
+    yes_buys: u32 = 0,
+    hedges_executed: u32 = 0,
+    total_profit: f64 = 0,
 };
 
 // ============================================================================
-// 全局状态（WebSocket 回调需要访问）
+// 全局状态
 // ============================================================================
 
 var g_live_book: LiveOrderBook = .{};
@@ -163,51 +235,32 @@ var g_up_token_id: [128]u8 = undefined;
 var g_up_token_len: usize = 0;
 var g_down_token_id: [128]u8 = undefined;
 var g_down_token_len: usize = 0;
-var g_edge_threshold: f64 = 0.20;
-var g_stats: TradingStats = .{};
+var g_edge_threshold: f64 = 0.05;
 
 // ============================================================================
-// WebSocket 回调函数
+// WebSocket 回调
 // ============================================================================
 
 fn onBookMessage(msg: BookMessage) void {
-    g_stats.ws_messages_received += 1;
-
-    // 确定是 UP 还是 DOWN token (asset_id 是 []const u8，不是 optional)
     const is_up = std.mem.eql(u8, msg.asset_id, g_up_token_id[0..g_up_token_len]);
     const is_down = std.mem.eql(u8, msg.asset_id, g_down_token_id[0..g_down_token_len]);
 
     if (!is_up and !is_down) return;
 
-    // 分析订单簿，忽略边缘价格
     var real_best_bid: f64 = 0;
     var real_best_ask: f64 = 1;
-    var bid_depth: f64 = 0;
-    var ask_depth: f64 = 0;
 
-    // 分析买单 (bids 是 []const BookLevel，不是 optional)
     for (msg.bids) |bid| {
         const price = std.fmt.parseFloat(f64, bid.price) catch continue;
-        const size = std.fmt.parseFloat(f64, bid.size) catch continue;
-
-        if (price >= g_edge_threshold) {
-            bid_depth += size * price;
-            if (price > real_best_bid) {
-                real_best_bid = price;
-            }
+        if (price >= g_edge_threshold and price > real_best_bid) {
+            real_best_bid = price;
         }
     }
 
-    // 分析卖单 (asks 是 []const BookLevel，不是 optional)
     for (msg.asks) |ask| {
         const price = std.fmt.parseFloat(f64, ask.price) catch continue;
-        const size = std.fmt.parseFloat(f64, ask.size) catch continue;
-
-        if (price <= (1.0 - g_edge_threshold)) {
-            ask_depth += size * price;
-            if (price < real_best_ask) {
-                real_best_ask = price;
-            }
+        if (price <= (1.0 - g_edge_threshold) and price < real_best_ask) {
+            real_best_ask = price;
         }
     }
 
@@ -216,19 +269,14 @@ fn onBookMessage(msg: BookMessage) void {
     else
         0.5;
 
-    // 更新全局状态
     if (is_up) {
         g_live_book.up_best_bid = real_best_bid;
         g_live_book.up_best_ask = real_best_ask;
         g_live_book.up_mid_price = mid_price;
-        g_live_book.up_bid_depth = bid_depth;
-        g_live_book.up_ask_depth = ask_depth;
     } else {
         g_live_book.down_best_bid = real_best_bid;
         g_live_book.down_best_ask = real_best_ask;
         g_live_book.down_mid_price = mid_price;
-        g_live_book.down_bid_depth = bid_depth;
-        g_live_book.down_ask_depth = ask_depth;
     }
 
     g_live_book.last_update = std.time.timestamp();
@@ -236,11 +284,7 @@ fn onBookMessage(msg: BookMessage) void {
 }
 
 fn onPriceChange(msg: PriceChangeMessage) void {
-    g_stats.ws_messages_received += 1;
-
-    // PriceChangeMessage 包含 price_changes 数组，每个元素有 asset_id, price, side
     for (msg.price_changes) |change| {
-        // 确定是 UP 还是 DOWN token
         const is_up = std.mem.eql(u8, change.asset_id, g_up_token_id[0..g_up_token_len]);
         const is_down = std.mem.eql(u8, change.asset_id, g_down_token_id[0..g_down_token_len]);
 
@@ -291,24 +335,33 @@ fn onError(err: anyerror) void {
 }
 
 // ============================================================================
-// WebSocket 交易系统
+// 两步对冲套利策略
 // ============================================================================
 
-const WsTrader = struct {
+const HedgeArbitrageBot = struct {
     allocator: std.mem.Allocator,
-    config: WsTraderConfig,
+    config: StrategyConfig,
     client: *ClobClient,
     wallet: ?*const Wallet,
     builder: ?OrderBuilder,
-    position: Position,
+
+    // 策略状态
+    phase: StrategyPhase,
+    yes_position: YesPosition,
+    no_position: NoPosition,
     stats: TradingStats,
+
+    // 价格监控
+    initial_yes_price: f64, // 市场开始时的 YES 价格
+    peak_yes_price: f64, // 观察到的最高 YES 价格
+    crash_start_price: f64, // 暴跌开始时的价格
+    price_history: [120]f64, // 2分钟的价格历史（每秒一个）
+    price_idx: usize,
+
+    // 市场和连接
     current_market: ?MarketInfo,
     ws_channel: ?MarketChannel,
     running: bool,
-
-    // 价格历史（用于计算动量和波动率）
-    price_history: [60]f64 = [_]f64{0} ** 60,
-    price_history_idx: usize = 0,
 
     const Self = @This();
 
@@ -316,9 +369,8 @@ const WsTrader = struct {
         allocator: std.mem.Allocator,
         client: *ClobClient,
         wallet: ?*const Wallet,
-        config: WsTraderConfig,
+        config: StrategyConfig,
     ) Self {
-        // 设置全局边缘阈值
         g_edge_threshold = config.edge_price_threshold;
 
         return Self{
@@ -330,13 +382,18 @@ const WsTrader = struct {
                 .chain_id = if (config.use_testnet) 80002 else 137,
                 .funder = config.funder,
             }) else null,
-            .position = .{},
+            .phase = .waiting_for_crash,
+            .yes_position = .{},
+            .no_position = .{},
             .stats = .{},
+            .initial_yes_price = 0.5,
+            .peak_yes_price = 0.5,
+            .crash_start_price = 0,
+            .price_history = [_]f64{0} ** 120,
+            .price_idx = 0,
             .current_market = null,
             .ws_channel = null,
             .running = true,
-            .price_history = [_]f64{0} ** 60,
-            .price_history_idx = 0,
         };
     }
 
@@ -351,7 +408,6 @@ const WsTrader = struct {
         self.printBanner();
 
         while (self.running) {
-            // 阶段 1: 寻找市场
             log("", .{});
             log("════════════════════════════════════════════════════════════════", .{});
             log("  寻找 BTC 15分钟市场...", .{});
@@ -377,40 +433,23 @@ const WsTrader = struct {
                 @memcpy(g_down_token_id[0..m.down_token_id_len], m.down_token_id_buf[0..m.down_token_id_len]);
                 g_down_token_len = m.down_token_id_len;
 
-                // 阶段 2: 建立 WebSocket 连接
-                // 尝试建立 WebSocket 连接（支持 TLS）
+                // 重置策略状态
+                self.resetForNewMarket();
+
+                // 执行策略
                 log("", .{});
                 log("════════════════════════════════════════════════════════════════", .{});
-                log("  尝试建立 WebSocket 连接...", .{});
-                log("════════════════════════════════════════════════════════════════", .{});
-
-                var use_websocket = false;
-                self.connectWebSocket(m) catch |err| {
-                    log("  WebSocket 连接失败: {}, 回退到 REST API 轮询", .{err});
-                };
-                if (self.ws_channel != null) {
-                    log("  WebSocket 连接成功!", .{});
-                    use_websocket = true;
-                }
-
-                // 阶段 3: 执行策略
-                log("", .{});
-                log("════════════════════════════════════════════════════════════════", .{});
-                if (use_websocket) {
-                    log("  执行 WebSocket 实时交易策略...", .{});
-                } else {
-                    log("  执行 REST API 轮询交易策略...", .{});
-                }
+                log("  执行两步对冲套利策略...", .{});
+                log("  参数: sumTarget={d:.2}, move={d:.2}%", .{ self.config.sum_target, self.config.move_threshold * 100 });
                 log("════════════════════════════════════════════════════════════════", .{});
 
                 self.executeStrategy(m) catch |err| {
                     log("策略执行失败: {}", .{err});
                 };
 
-                // 阶段 4: 清理
+                // 清理
                 self.disconnectWebSocket();
-                self.position.reset();
-                self.current_market = null;
+                self.printMarketSummary();
                 self.stats.markets_traded += 1;
             } else {
                 self.showNextExpectedMarket();
@@ -421,78 +460,127 @@ const WsTrader = struct {
         self.printFinalStats();
     }
 
-    /// 建立 WebSocket 连接
-    fn connectWebSocket(self: *Self, market: MarketInfo) !void {
-        // 重置全局订单簿状态
+    /// 重置市场状态
+    fn resetForNewMarket(self: *Self) void {
+        self.phase = .waiting_for_crash;
+        self.yes_position.reset();
+        self.no_position.reset();
+        self.initial_yes_price = 0.5;
+        self.peak_yes_price = 0.5;
+        self.crash_start_price = 0;
+        self.price_history = [_]f64{0} ** 120;
+        self.price_idx = 0;
         g_live_book = .{};
-        g_stats = .{};
-
-        // 创建 MarketChannel
-        self.ws_channel = try MarketChannel.init(self.allocator, .{
-            .on_book = onBookMessage,
-            .on_price_change = onPriceChange,
-            .on_connection = onConnectionChange,
-            .on_error = onError,
-            .auto_reconnect = true,
-        });
-
-        // 连接
-        try self.ws_channel.?.connect();
-
-        // 订阅两个 token
-        const tokens = [_][]const u8{
-            market.getUpTokenId(),
-            market.getDownTokenId(),
-        };
-        try self.ws_channel.?.subscribe(&tokens);
-
-        log("  已订阅 UP 和 DOWN token", .{});
     }
 
-    /// 断开 WebSocket
-    fn disconnectWebSocket(self: *Self) void {
-        if (self.ws_channel) |*channel| {
-            channel.disconnect();
-            channel.deinit();
-            self.ws_channel = null;
-        }
-    }
-
-    /// 执行策略（使用 WebSocket 数据）
+    /// 执行两步对冲策略
     fn executeStrategy(self: *Self, market: MarketInfo) !void {
         var last_print_time: i64 = 0;
+        var first_price_received = false;
 
         while (self.running) {
             const now = std.time.timestamp();
             const remaining = market.end_timestamp - now;
 
             // 检查剩余时间
-            if (remaining < 60) {
-                log("  剩余时间不足 1 分钟，停止交易", .{});
+            if (remaining < 30) {
+                log("  剩余时间不足 30 秒，停止交易", .{});
                 break;
             }
 
-            // 定期更新数据和打印状态（每 3 秒）
-            if (now - last_print_time >= 3) {
+            // 获取订单簿数据
+            self.fetchOrderBook(market) catch |err| {
+                log("  获取订单簿失败: {}", .{err});
+                std.Thread.sleep(1 * std.time.ns_per_s);
+                continue;
+            };
+
+            const yes_price = g_live_book.yesPrice();
+
+            // 记录初始价格
+            if (!first_price_received and yes_price > 0 and yes_price < 1) {
+                self.initial_yes_price = yes_price;
+                self.peak_yes_price = yes_price;
+                first_price_received = true;
+                log("  初始 YES 价格: {d:.4}", .{yes_price});
+            }
+
+            // 更新峰值价格
+            if (yes_price > self.peak_yes_price) {
+                self.peak_yes_price = yes_price;
+            }
+
+            // 记录价格历史
+            self.price_history[self.price_idx] = yes_price;
+            self.price_idx = (self.price_idx + 1) % 120;
+
+            // 定期打印状态（每 2 秒）
+            if (now - last_print_time >= 2) {
                 last_print_time = now;
-
-                // 使用 REST API 获取订单簿数据
-                self.fetchOrderBookViaRest(market) catch |err| {
-                    log("  获取订单簿失败: {}", .{err});
-                };
-
-                // 更新价格历史
-                if (g_live_book.up_mid_price > 0) {
-                    self.price_history[self.price_history_idx] = g_live_book.up_mid_price;
-                    self.price_history_idx = (self.price_history_idx + 1) % 60;
-                }
-
                 self.printLiveStatus(market);
+            }
 
-                // 检查交易信号
-                self.checkAndExecuteSignals(market) catch |err| {
-                    log("  信号执行失败: {}", .{err});
-                };
+            // ========== 策略核心逻辑 ==========
+
+            switch (self.phase) {
+                .waiting_for_crash => {
+                    // 检测暴跌
+                    if (self.detectCrash(yes_price)) {
+                        self.phase = .buying_yes;
+                        self.crash_start_price = yes_price;
+                        self.stats.crashes_detected += 1;
+                        log("", .{});
+                        log("  🚨 检测到暴跌! 当前价格: {d:.4}, 峰值: {d:.4}, 跌幅: {d:.2}%", .{
+                            yes_price,
+                            self.peak_yes_price,
+                            (self.peak_yes_price - yes_price) / self.peak_yes_price * 100,
+                        });
+                        log("  ➡️ 进入第一步：买入 YES", .{});
+                    }
+                },
+
+                .buying_yes => {
+                    // 第一步：继续买入 YES，直到达到 sumTarget
+                    try self.executeBuyYes(market, yes_price);
+
+                    // 检查是否已买够
+                    const current_sum = self.yes_position.total_cost / self.config.max_position;
+                    if (current_sum >= self.config.sum_target) {
+                        self.phase = .waiting_for_rebound;
+                        log("", .{});
+                        log("  ✅ 第一步完成! 已买入 YES: {d:.2} 股, 成本: ${d:.2}, 均价: {d:.4}", .{
+                            self.yes_position.shares,
+                            self.yes_position.total_cost,
+                            self.yes_position.avgPrice(),
+                        });
+                        log("  ➡️ 进入第二步：等待反弹对冲", .{});
+                    }
+                },
+
+                .waiting_for_rebound => {
+                    // 第二步：等待价格反弹，然后对冲
+                    const avg_buy_price = self.yes_position.avgPrice();
+                    const profit_ratio = (yes_price - avg_buy_price) / avg_buy_price;
+
+                    if (profit_ratio >= self.config.hedge_profit_threshold) {
+                        try self.executeHedge(market, yes_price);
+                        self.phase = .hedged;
+                        log("", .{});
+                        log("  ✅ 对冲完成! 锁定利润", .{});
+                        log("  YES 成本: ${d:.2}, NO 收入: ${d:.2}", .{
+                            self.yes_position.total_cost,
+                            self.no_position.total_revenue,
+                        });
+                        log("  锁定利润: ${d:.2}", .{
+                            self.no_position.total_revenue - self.yes_position.total_cost + self.yes_position.shares,
+                        });
+                    }
+                },
+
+                .hedged => {
+                    // 已对冲，等待市场结束
+                    // 可以考虑追加对冲或提前退出
+                },
             }
 
             // 休眠
@@ -500,33 +588,184 @@ const WsTrader = struct {
         }
     }
 
-    /// 使用 REST API 获取订单簿
-    fn fetchOrderBookViaRest(self: *Self, market: MarketInfo) !void {
-        // 获取 UP token 订单簿
-        const up_book = self.client.getOrderBook(market.getUpTokenId()) catch {
-            return;
-        };
+    /// 检测暴跌
+    fn detectCrash(self: *Self, current_price: f64) bool {
+        // 方法1：与峰值比较
+        if (self.peak_yes_price > 0) {
+            const drop_from_peak = (self.peak_yes_price - current_price) / self.peak_yes_price;
+            if (drop_from_peak >= self.config.move_threshold) {
+                return true;
+            }
+        }
+
+        // 方法2：与短期均价比较（最近 10 秒）
+        var sum: f64 = 0;
+        var count: f64 = 0;
+        for (self.price_history) |p| {
+            if (p > 0) {
+                sum += p;
+                count += 1;
+            }
+        }
+        if (count >= 5) {
+            const avg = sum / count;
+            const drop_from_avg = (avg - current_price) / avg;
+            if (drop_from_avg >= self.config.move_threshold) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// 执行买入 YES
+    fn executeBuyYes(self: *Self, market: MarketInfo, current_price: f64) !void {
+        // 检查价差
+        const spread = g_live_book.up_best_ask - g_live_book.up_best_bid;
+        if (spread > self.config.max_spread) {
+            return; // 价差过大，不买
+        }
+
+        // 检查仓位限制
+        if (self.yes_position.total_cost >= self.config.max_position * self.config.sum_target) {
+            return; // 已达目标
+        }
+
+        // 计算买入金额（价格越低买越多）
+        // 使用累进买入：价格越低，买入量越大
+        const price_factor = 1.0 - current_price; // 价格 0.2 -> factor 0.8
+        var buy_amount = self.config.min_order_size + (self.config.max_order_size - self.config.min_order_size) * price_factor;
+
+        // 限制不超过剩余额度
+        const remaining_budget = self.config.max_position * self.config.sum_target - self.yes_position.total_cost;
+        buy_amount = @min(buy_amount, remaining_budget);
+
+        if (buy_amount < self.config.min_order_size) {
+            return; // 金额太小
+        }
+
+        // 计算股数
+        const buy_price = g_live_book.up_best_ask; // 以卖一价买入
+        const shares = buy_amount / buy_price;
+
+        log("  📈 买入 YES: {d:.2} 股 @ {d:.4}, 金额: ${d:.2}", .{ shares, buy_price, buy_amount });
+
+        if (self.config.dry_run) {
+            // 模拟模式
+            self.yes_position.addBuy(shares, buy_amount);
+            self.stats.yes_buys += 1;
+        } else {
+            // 实盘下单
+            if (self.builder) |*builder| {
+                const price_str = try std.fmt.allocPrint(self.allocator, "{d:.2}", .{buy_price});
+                defer self.allocator.free(price_str);
+                const size_str = try std.fmt.allocPrint(self.allocator, "{d:.0}", .{shares});
+                defer self.allocator.free(size_str);
+
+                const order = try builder.createOrder(.{
+                    .token_id = market.getUpTokenId(),
+                    .price = try Decimal.fromString(price_str),
+                    .size = try Decimal.fromString(size_str),
+                    .side = .BUY,
+                }, .{
+                    .tick_size = .@"0.01",
+                    .neg_risk = false,
+                    .signature_type = self.config.signature_type,
+                });
+
+                const response = self.client.postOrder(&order, .GTC) catch |err| {
+                    log("  ❌ 下单失败: {}", .{err});
+                    return;
+                };
+
+                if (response.success) {
+                    self.yes_position.addBuy(shares, buy_amount);
+                    self.stats.yes_buys += 1;
+                    log("  ✅ 订单成功! ID: {s}", .{response.orderID orelse "N/A"});
+                } else {
+                    log("  ❌ 订单被拒绝: {s}", .{response.errorMsg orelse "未知错误"});
+                }
+            }
+        }
+    }
+
+    /// 执行对冲（卖出 NO）
+    fn executeHedge(self: *Self, market: MarketInfo, _: f64) !void {
+        // 卖出等量的 NO 股份
+        const shares_to_sell = self.yes_position.shares;
+        const no_sell_price = g_live_book.down_best_bid; // 以买一价卖出
+        const revenue = shares_to_sell * no_sell_price;
+
+        log("  📉 对冲卖出 NO: {d:.2} 股 @ {d:.4}, 收入: ${d:.2}", .{ shares_to_sell, no_sell_price, revenue });
+
+        if (self.config.dry_run) {
+            // 模拟模式
+            self.no_position.addSell(shares_to_sell, revenue);
+            self.stats.hedges_executed += 1;
+
+            // 计算利润
+            // YES + NO = 1，锁定价值 = shares * 1 = shares
+            // 利润 = 锁定价值 - YES成本
+            const locked_value = shares_to_sell; // 每份 YES+NO = $1
+            const profit = locked_value - self.yes_position.total_cost;
+            self.stats.total_profit += profit;
+        } else {
+            // 实盘下单 - 卖出 NO
+            if (self.builder) |*builder| {
+                const price_str = try std.fmt.allocPrint(self.allocator, "{d:.2}", .{no_sell_price});
+                defer self.allocator.free(price_str);
+                const size_str = try std.fmt.allocPrint(self.allocator, "{d:.0}", .{shares_to_sell});
+                defer self.allocator.free(size_str);
+
+                const order = try builder.createOrder(.{
+                    .token_id = market.getDownTokenId(),
+                    .price = try Decimal.fromString(price_str),
+                    .size = try Decimal.fromString(size_str),
+                    .side = .SELL, // 卖出 NO
+                }, .{
+                    .tick_size = .@"0.01",
+                    .neg_risk = false,
+                    .signature_type = self.config.signature_type,
+                });
+
+                const response = self.client.postOrder(&order, .GTC) catch |err| {
+                    log("  ❌ 对冲下单失败: {}", .{err});
+                    return;
+                };
+
+                if (response.success) {
+                    self.no_position.addSell(shares_to_sell, revenue);
+                    self.stats.hedges_executed += 1;
+
+                    const locked_value = shares_to_sell;
+                    const profit = locked_value - self.yes_position.total_cost;
+                    self.stats.total_profit += profit;
+
+                    log("  ✅ 对冲成功! ID: {s}", .{response.orderID orelse "N/A"});
+                } else {
+                    log("  ❌ 对冲被拒绝: {s}", .{response.errorMsg orelse "未知错误"});
+                }
+            }
+        }
+    }
+
+    /// 获取订单簿
+    fn fetchOrderBook(self: *Self, market: MarketInfo) !void {
+        const up_book = self.client.getOrderBook(market.getUpTokenId()) catch return;
         defer up_book.deinit();
 
-        // 获取 DOWN token 订单簿
-        const down_book = self.client.getOrderBook(market.getDownTokenId()) catch {
-            return;
-        };
+        const down_book = self.client.getOrderBook(market.getDownTokenId()) catch return;
         defer down_book.deinit();
 
-        // 分析 UP 订单簿
+        // 解析 UP 订单簿
         var up_best_bid: f64 = 0;
         var up_best_ask: f64 = 1;
-        var up_bid_depth: f64 = 0;
-        var up_ask_depth: f64 = 0;
 
         if (up_book.value.bids) |bids| {
             for (bids) |bid| {
                 const price = std.fmt.parseFloat(f64, bid.price) catch continue;
-                const size = std.fmt.parseFloat(f64, bid.size) catch continue;
-                if (price >= g_edge_threshold) {
-                    up_bid_depth += size * price;
-                    if (price > up_best_bid) up_best_bid = price;
+                if (price >= g_edge_threshold and price > up_best_bid) {
+                    up_best_bid = price;
                 }
             }
         }
@@ -534,27 +773,21 @@ const WsTrader = struct {
         if (up_book.value.asks) |asks| {
             for (asks) |ask| {
                 const price = std.fmt.parseFloat(f64, ask.price) catch continue;
-                const size = std.fmt.parseFloat(f64, ask.size) catch continue;
-                if (price <= (1.0 - g_edge_threshold)) {
-                    up_ask_depth += size * price;
-                    if (price < up_best_ask) up_best_ask = price;
+                if (price <= (1.0 - g_edge_threshold) and price < up_best_ask) {
+                    up_best_ask = price;
                 }
             }
         }
 
-        // 分析 DOWN 订单簿
+        // 解析 DOWN 订单簿
         var down_best_bid: f64 = 0;
         var down_best_ask: f64 = 1;
-        var down_bid_depth: f64 = 0;
-        var down_ask_depth: f64 = 0;
 
         if (down_book.value.bids) |bids| {
             for (bids) |bid| {
                 const price = std.fmt.parseFloat(f64, bid.price) catch continue;
-                const size = std.fmt.parseFloat(f64, bid.size) catch continue;
-                if (price >= g_edge_threshold) {
-                    down_bid_depth += size * price;
-                    if (price > down_best_bid) down_best_bid = price;
+                if (price >= g_edge_threshold and price > down_best_bid) {
+                    down_best_bid = price;
                 }
             }
         }
@@ -562,23 +795,19 @@ const WsTrader = struct {
         if (down_book.value.asks) |asks| {
             for (asks) |ask| {
                 const price = std.fmt.parseFloat(f64, ask.price) catch continue;
-                const size = std.fmt.parseFloat(f64, ask.size) catch continue;
-                if (price <= (1.0 - g_edge_threshold)) {
-                    down_ask_depth += size * price;
-                    if (price < down_best_ask) down_best_ask = price;
+                if (price <= (1.0 - g_edge_threshold) and price < down_best_ask) {
+                    down_best_ask = price;
                 }
             }
         }
 
-        // 更新全局订单簿状态
+        // 更新全局状态
         g_live_book.up_best_bid = up_best_bid;
         g_live_book.up_best_ask = up_best_ask;
         g_live_book.up_mid_price = if (up_best_bid > 0 and up_best_ask < 1)
             (up_best_bid + up_best_ask) / 2.0
         else
             0.5;
-        g_live_book.up_bid_depth = up_bid_depth;
-        g_live_book.up_ask_depth = up_ask_depth;
 
         g_live_book.down_best_bid = down_best_bid;
         g_live_book.down_best_ask = down_best_ask;
@@ -586,188 +815,9 @@ const WsTrader = struct {
             (down_best_bid + down_best_ask) / 2.0
         else
             0.5;
-        g_live_book.down_bid_depth = down_bid_depth;
-        g_live_book.down_ask_depth = down_ask_depth;
 
         g_live_book.last_update = std.time.timestamp();
         g_live_book.update_count += 1;
-        g_stats.ws_messages_received += 2; // 模拟 2 条消息（UP + DOWN）
-    }
-
-    /// 检查并执行交易信号
-    fn checkAndExecuteSignals(self: *Self, market: MarketInfo) !void {
-        // 检查是否有足够的数据
-        if (g_live_book.update_count < 2) return;
-
-        // 检查仓位限制
-        if (self.position.totalCost() >= self.config.max_position) return;
-
-        // ⚠️ 检查价差是否过大 - 市场流动性不足时不交易
-        const up_spread = if (g_live_book.up_best_ask > g_live_book.up_best_bid)
-            g_live_book.up_best_ask - g_live_book.up_best_bid
-        else
-            0.0;
-        const down_spread = if (g_live_book.down_best_ask > g_live_book.down_best_bid)
-            g_live_book.down_best_ask - g_live_book.down_best_bid
-        else
-            0.0;
-
-        // 价差超过 30% 时不交易
-        const max_spread: f64 = 0.30;
-        if (up_spread > max_spread or down_spread > max_spread) {
-            // 只在首次检测到时记录
-            if (g_stats.signals_generated == 0 or g_live_book.update_count % 10 == 0) {
-                log("  ⚠️ 价差过大 (UP: {d:.2}, DOWN: {d:.2})，暂停交易", .{ up_spread, down_spread });
-            }
-            return;
-        }
-
-        const up_prob = g_live_book.up_mid_price;
-        const prob_sum = g_live_book.probabilitySum();
-
-        // 1. 套利检查
-        if (prob_sum < 0.98) {
-            log("  检测到套利机会! UP + DOWN = {d:.4}", .{prob_sum});
-            g_stats.signals_generated += 1;
-            // 买入两边...
-        }
-
-        // 2. 概率偏差检查
-        if (up_prob >= self.config.prob_bias_threshold) {
-            log("  信号: 强烈看涨 (UP={d:.1}%)", .{up_prob * 100});
-            g_stats.signals_generated += 1;
-
-            if (self.config.dry_run) {
-                log("  [模拟] 买入 UP @ {d:.4}", .{g_live_book.up_best_ask});
-                const size = self.config.order_size / g_live_book.up_best_ask;
-                self.position.up_shares += size;
-                self.position.up_cost += self.config.order_size;
-                self.stats.total_trades += 1;
-            } else {
-                self.executeBuy(market, .up, g_live_book.up_best_ask) catch |err| {
-                    log("  买入 UP 失败: {}", .{err});
-                };
-            }
-        } else if (up_prob <= (1.0 - self.config.prob_bias_threshold)) {
-            log("  信号: 强烈看跌 (UP={d:.1}%)", .{up_prob * 100});
-            g_stats.signals_generated += 1;
-
-            if (self.config.dry_run) {
-                log("  [模拟] 买入 DOWN @ {d:.4}", .{g_live_book.down_best_ask});
-                const size = self.config.order_size / g_live_book.down_best_ask;
-                self.position.down_shares += size;
-                self.position.down_cost += self.config.order_size;
-                self.stats.total_trades += 1;
-            } else {
-                self.executeBuy(market, .down, g_live_book.down_best_ask) catch |err| {
-                    log("  买入 DOWN 失败: {}", .{err});
-                };
-            }
-        }
-    }
-
-    /// 执行买入
-    fn executeBuy(self: *Self, market: MarketInfo, token: enum { up, down }, price: f64) !void {
-        if (self.builder) |*builder| {
-            const token_id = if (token == .up) market.getUpTokenId() else market.getDownTokenId();
-            const size = self.config.order_size / price;
-
-            const price_str = try std.fmt.allocPrint(self.allocator, "{d:.2}", .{price});
-            defer self.allocator.free(price_str);
-            const size_str = try std.fmt.allocPrint(self.allocator, "{d:.0}", .{size});
-            defer self.allocator.free(size_str);
-
-            log("  准备下单: token={s}, price={s}, size={s}, side=BUY, sig_type={d}", .{
-                token_id,
-                price_str,
-                size_str,
-                @intFromEnum(self.config.signature_type),
-            });
-
-            const order = try builder.createOrder(.{
-                .token_id = token_id,
-                .price = try Decimal.fromString(price_str),
-                .size = try Decimal.fromString(size_str),
-                .side = .BUY,
-            }, .{
-                .tick_size = .@"0.01",
-                .neg_risk = false,
-                .signature_type = self.config.signature_type,
-            });
-
-            // 打印订单详情
-            var buffers = poly.order.types.SignedOrder.OrderDataBuffers{};
-            const order_data = order.toOrderData(&buffers);
-            log("  订单详情: maker={s}, signer={s}, salt={d}", .{
-                order_data.maker,
-                order_data.signer,
-                order_data.salt,
-            });
-
-            const response = self.client.postOrder(&order, .GTC) catch |err| {
-                log("  ❌ 下单请求失败: {}", .{err});
-                log("  提示: 如果是 Unauthorized 错误，请检查 API 凭证配置", .{});
-                return;
-            };
-
-            if (response.success) {
-                log("  ✅ 订单成功! ID: {s}", .{response.orderID orelse "N/A"});
-                if (token == .up) {
-                    self.position.up_shares += size;
-                    self.position.up_cost += self.config.order_size;
-                } else {
-                    self.position.down_shares += size;
-                    self.position.down_cost += self.config.order_size;
-                }
-                self.stats.total_trades += 1;
-            } else {
-                log("  ❌ 订单被拒绝: {s}", .{response.errorMsg orelse "未知错误"});
-            }
-        }
-    }
-
-    /// 计算价格动量（基于最近的价格历史）
-    fn calculateMomentum(self: *Self) f64 {
-        var sum: f64 = 0;
-        var count: f64 = 0;
-        var prev: f64 = 0;
-
-        for (self.price_history) |p| {
-            if (p > 0) {
-                if (prev > 0) {
-                    sum += (p - prev);
-                    count += 1;
-                }
-                prev = p;
-            }
-        }
-
-        if (count > 0) {
-            return sum / count;
-        }
-        return 0;
-    }
-
-    /// 计算价格波动率
-    fn calculateVolatility(self: *Self) f64 {
-        var sum: f64 = 0;
-        var sum_sq: f64 = 0;
-        var count: f64 = 0;
-
-        for (self.price_history) |p| {
-            if (p > 0) {
-                sum += p;
-                sum_sq += p * p;
-                count += 1;
-            }
-        }
-
-        if (count > 1) {
-            const mean = sum / count;
-            const variance = (sum_sq / count) - (mean * mean);
-            return @sqrt(@max(variance, 0));
-        }
-        return 0;
     }
 
     /// 打印实时状态
@@ -775,116 +825,116 @@ const WsTrader = struct {
         const remaining = market.getRemainingSeconds();
         const mins = @divFloor(remaining, 60);
         const secs = @mod(remaining, 60);
+        const yes_price = g_live_book.yesPrice();
 
         // 清屏
         std.debug.print("\x1B[2J\x1B[H", .{});
 
         std.debug.print("\n", .{});
         std.debug.print("╔═══════════════════════════════════════════════════════════════════════════╗\n", .{});
-        std.debug.print("║     BTC 15分钟 WebSocket 实时交易系统 - {s}     ║\n", .{if (self.config.dry_run) "模拟模式" else "实盘模式"});
+        std.debug.print("║     BTC 15分钟 两步对冲套利机器人 - {s}     ║\n", .{if (self.config.dry_run) "模拟模式" else "实盘模式"});
         std.debug.print("╠═══════════════════════════════════════════════════════════════════════════╣\n", .{});
         std.debug.print("║  市场: {s:<64} ║\n", .{market.getSlug()});
-        std.debug.print("║  剩余: {d:>2}:{d:0>2}    WS消息: {d:<10}  更新次数: {d:<10}           ║\n", .{
+        std.debug.print("║  剩余: {d:>2}:{d:0>2}    策略阶段: {s:<25}                ║\n", .{
             mins,
             secs,
-            g_stats.ws_messages_received,
-            g_live_book.update_count,
+            @tagName(self.phase),
         });
         std.debug.print("╠═══════════════════════════════════════════════════════════════════════════╣\n", .{});
-        std.debug.print("║                      实 时 订 单 簿 (WebSocket)                           ║\n", .{});
+        std.debug.print("║                          价 格 监 控                                      ║\n", .{});
         std.debug.print("╠═══════════════════════════════════════════════════════════════════════════╣\n", .{});
-        std.debug.print("║                    UP (涨)                    DOWN (跌)                   ║\n", .{});
-        std.debug.print("║  ─────────────────────────────────────────────────────────────────────── ║\n", .{});
-        std.debug.print("║  真实买价:      {d:.4}                         {d:.4}                     ║\n", .{
-            g_live_book.up_best_bid,
-            g_live_book.down_best_bid,
+        std.debug.print("║  YES 价格: {d:.4}   (初始: {d:.4}, 峰值: {d:.4})                       ║\n", .{
+            yes_price,
+            self.initial_yes_price,
+            self.peak_yes_price,
         });
-        std.debug.print("║  真实卖价:      {d:.4}                         {d:.4}                     ║\n", .{
-            g_live_book.up_best_ask,
-            g_live_book.down_best_ask,
+        std.debug.print("║  NO  价格: {d:.4}                                                        ║\n", .{
+            g_live_book.noPrice(),
         });
-        std.debug.print("║  中间价:        {d:.4}  ({d:>5.1}%)               {d:.4}  ({d:>5.1}%)           ║\n", .{
-            g_live_book.up_mid_price,
-            g_live_book.up_mid_price * 100,
-            g_live_book.down_mid_price,
-            g_live_book.down_mid_price * 100,
-        });
-        std.debug.print("║  价差:          {d:.4}                         {d:.4}                     ║\n", .{
-            g_live_book.up_best_ask - g_live_book.up_best_bid,
-            g_live_book.down_best_ask - g_live_book.down_best_bid,
-        });
-        std.debug.print("║  买盘深度:    ${d:>7.0}                       ${d:>7.0}                   ║\n", .{
-            g_live_book.up_bid_depth,
-            g_live_book.down_bid_depth,
-        });
-        std.debug.print("║  卖盘深度:    ${d:>7.0}                       ${d:>7.0}                   ║\n", .{
-            g_live_book.up_ask_depth,
-            g_live_book.down_ask_depth,
-        });
-        std.debug.print("╠═══════════════════════════════════════════════════════════════════════════╣\n", .{});
-        std.debug.print("║                        市 场 指 标                                        ║\n", .{});
-        std.debug.print("╠═══════════════════════════════════════════════════════════════════════════╣\n", .{});
-        std.debug.print("║  UP + DOWN = {d:.4}  ", .{g_live_book.probabilitySum()});
-        if (g_live_book.hasArbitrage(0.02)) {
-            std.debug.print(">>> 套利机会! <<<                              ║\n", .{});
-        } else {
-            std.debug.print("(正常)                                         ║\n", .{});
+
+        // 显示暴跌检测状态
+        if (self.peak_yes_price > 0) {
+            const drop = (self.peak_yes_price - yes_price) / self.peak_yes_price * 100;
+            std.debug.print("║  从峰值跌幅: {d:>5.2}%   (触发阈值: {d:.2}%)                             ║\n", .{
+                drop,
+                self.config.move_threshold * 100,
+            });
         }
 
-        // 计算动量和波动率
-        const momentum = self.calculateMomentum();
-        const volatility = self.calculateVolatility();
-
-        // 显示动量（手动处理正负号）
-        if (momentum >= 0) {
-            std.debug.print("║  动量: +{d:.5}    波动率: {d:.5}                                        ║\n", .{ momentum, volatility });
-        } else {
-            std.debug.print("║  动量: {d:.5}    波动率: {d:.5}                                        ║\n", .{ momentum, volatility });
-        }
-
-        // 市场情绪
-        const up_prob = g_live_book.up_mid_price;
-        std.debug.print("║  市场情绪: ", .{});
-        if (up_prob >= 0.55) {
-            std.debug.print("强烈看涨 (UP {d:.1}%)                                         ║\n", .{up_prob * 100});
-        } else if (up_prob >= 0.52) {
-            std.debug.print("略微看涨 (UP {d:.1}%)                                         ║\n", .{up_prob * 100});
-        } else if (up_prob <= 0.45) {
-            std.debug.print("强烈看跌 (UP {d:.1}%)                                         ║\n", .{up_prob * 100});
-        } else if (up_prob <= 0.48) {
-            std.debug.print("略微看跌 (UP {d:.1}%)                                         ║\n", .{up_prob * 100});
-        } else {
-            std.debug.print("中性 (UP {d:.1}%)                                             ║\n", .{up_prob * 100});
-        }
         std.debug.print("╠═══════════════════════════════════════════════════════════════════════════╣\n", .{});
-        std.debug.print("║                        当 前 仓 位                                        ║\n", .{});
+        std.debug.print("║                          仓 位 状 态                                      ║\n", .{});
         std.debug.print("╠═══════════════════════════════════════════════════════════════════════════╣\n", .{});
-        std.debug.print("║  UP 持仓: {d:>7.2}  成本: ${d:>7.2}   DOWN 持仓: {d:>7.2}  成本: ${d:>7.2}  ║\n", .{
-            self.position.up_shares,
-            self.position.up_cost,
-            self.position.down_shares,
-            self.position.down_cost,
+        std.debug.print("║  YES 持仓: {d:>7.2} 股   成本: ${d:>7.2}   均价: {d:.4}                 ║\n", .{
+            self.yes_position.shares,
+            self.yes_position.total_cost,
+            self.yes_position.avgPrice(),
         });
-        std.debug.print("║  总成本: ${d:>7.2}  信号数: {d:<5}  交易数: {d:<5}                        ║\n", .{
-            self.position.totalCost(),
-            g_stats.signals_generated,
-            self.stats.total_trades,
+        std.debug.print("║  NO  对冲: {d:>7.2} 股   收入: ${d:>7.2}                                 ║\n", .{
+            self.no_position.shares,
+            self.no_position.total_revenue,
+        });
+
+        // 显示进度
+        const progress = self.yes_position.total_cost / (self.config.max_position * self.config.sum_target) * 100;
+        std.debug.print("║  买入进度: {d:>5.1}% / {d:.0}%                                              ║\n", .{
+            progress,
+            self.config.sum_target * 100,
+        });
+
+        // 显示潜在利润
+        if (self.yes_position.shares > 0 and self.phase != .hedged) {
+            const avg_buy = self.yes_position.avgPrice();
+            const current_profit = (yes_price - avg_buy) * self.yes_position.shares;
+            std.debug.print("║  当前浮盈: ${d:>7.2}   (反弹 {d:.2}% 后对冲)                           ║\n", .{
+                current_profit,
+                self.config.hedge_profit_threshold * 100,
+            });
+        }
+
+        if (self.phase == .hedged) {
+            std.debug.print("║  ✅ 已锁定利润: ${d:>7.2}                                              ║\n", .{
+                self.stats.total_profit,
+            });
+        }
+
+        std.debug.print("╠═══════════════════════════════════════════════════════════════════════════╣\n", .{});
+        std.debug.print("║  参数: sumTarget={d:.2}  move={d:.2}%  hedge={d:.2}%                        ║\n", .{
+            self.config.sum_target,
+            self.config.move_threshold * 100,
+            self.config.hedge_profit_threshold * 100,
         });
         std.debug.print("╚═══════════════════════════════════════════════════════════════════════════╝\n", .{});
     }
 
+    /// 打印市场总结
+    fn printMarketSummary(self: *Self) void {
+        log("", .{});
+        log("════════════════════════════════════════════════════════════════", .{});
+        log("  市场结束总结", .{});
+        log("════════════════════════════════════════════════════════════════", .{});
+        log("  最终阶段: {s}", .{@tagName(self.phase)});
+        log("  YES 买入: {d} 次, 共 {d:.2} 股, 成本 ${d:.2}", .{
+            self.yes_position.buy_count,
+            self.yes_position.shares,
+            self.yes_position.total_cost,
+        });
+        if (self.no_position.shares > 0) {
+            log("  NO 对冲: {d:.2} 股, 收入 ${d:.2}", .{
+                self.no_position.shares,
+                self.no_position.total_revenue,
+            });
+        }
+        log("════════════════════════════════════════════════════════════════", .{});
+    }
+
     /// 寻找适合的市场
-    /// 市场 slug 格式是 btc-updown-15m-{开始时间戳}
-    /// 例如: btc-updown-15m-1767248100 表示 1:15-1:30 的市场
     fn findSuitableMarket(self: *Self) !?MarketInfo {
         const now = std.time.timestamp();
-        const interval: i64 = 900; // 15 分钟
+        const interval: i64 = 900;
 
-        // 计算当前时段的开始时间 (这是正在进行的市场的 slug)
         const current_slot = @divFloor(now, interval) * interval;
         const next_slot = current_slot + interval;
 
-        // 优先选择正在进行的市场，然后是下一个市场
         const slots = [_]i64{ current_slot, next_slot };
 
         for (slots) |slot| {
@@ -894,13 +944,11 @@ const WsTrader = struct {
             if (self.fetchMarketFromGamma(slug)) |market_info| {
                 const remaining = market_info.end_timestamp - now;
 
-                // 跳过剩余时间不足的市场
                 if (remaining < self.config.min_remaining_minutes * 60) {
                     log("  市场 {s} 剩余时间不足 ({d}秒)，跳过", .{ slug, remaining });
                     continue;
                 }
 
-                // 跳过已结束的市场
                 if (remaining <= 0) {
                     continue;
                 }
@@ -966,10 +1014,9 @@ const WsTrader = struct {
         const condition_end = std.mem.indexOf(u8, condition_data, "\"") orelse return error.ParseError;
         const condition_id = condition_data[0..condition_end];
 
-        // 从 slug 解析开始时间戳，然后计算结束时间
         const start_timestamp = parseTimestampFromSlug(slug);
         if (start_timestamp == 0) return error.InvalidTimestamp;
-        const end_timestamp = start_timestamp + 900; // 15分钟后结束
+        const end_timestamp = start_timestamp + 900;
 
         var info = MarketInfo{
             .end_timestamp = end_timestamp,
@@ -1006,13 +1053,45 @@ const WsTrader = struct {
         log("  距离开始: {d} 分 {d} 秒", .{ @divFloor(wait_seconds, 60), @mod(wait_seconds, 60) });
     }
 
+    fn connectWebSocket(self: *Self, market: MarketInfo) !void {
+        g_live_book = .{};
+
+        self.ws_channel = try MarketChannel.init(self.allocator, .{
+            .on_book = onBookMessage,
+            .on_price_change = onPriceChange,
+            .on_connection = onConnectionChange,
+            .on_error = onError,
+            .auto_reconnect = true,
+        });
+
+        try self.ws_channel.?.connect();
+
+        const tokens = [_][]const u8{
+            market.getUpTokenId(),
+            market.getDownTokenId(),
+        };
+        try self.ws_channel.?.subscribe(&tokens);
+    }
+
+    fn disconnectWebSocket(self: *Self) void {
+        if (self.ws_channel) |*channel| {
+            channel.disconnect();
+            channel.deinit();
+            self.ws_channel = null;
+        }
+    }
+
     fn printBanner(self: *Self) void {
         std.debug.print("\n", .{});
         std.debug.print("╔══════════════════════════════════════════════════════════════════╗\n", .{});
-        std.debug.print("║   BTC 15分钟 WebSocket 实时交易系统 - Polymarket                 ║\n", .{});
+        std.debug.print("║   BTC 15分钟 两步对冲套利机器人 - Polymarket                     ║\n", .{});
+        std.debug.print("╠══════════════════════════════════════════════════════════════════╣\n", .{});
+        std.debug.print("║  策略: 暴跌买入 YES -> 反弹对冲 NO -> 锁定利润                   ║\n", .{});
         std.debug.print("╠══════════════════════════════════════════════════════════════════╣\n", .{});
         std.debug.print("║  模式: {s:<58} ║\n", .{if (self.config.dry_run) "模拟交易" else "实盘交易"});
-        std.debug.print("║  数据源: WebSocket 实时推送                                      ║\n", .{});
+        std.debug.print("║  sumTarget: {d:<5.2}  (目标买入比例)                              ║\n", .{self.config.sum_target});
+        std.debug.print("║  move: {d:<5.2}%  (暴跌触发阈值)                                  ║\n", .{self.config.move_threshold * 100});
+        std.debug.print("║  hedge: {d:<5.2}%  (反弹对冲阈值)                                 ║\n", .{self.config.hedge_profit_threshold * 100});
         std.debug.print("╚══════════════════════════════════════════════════════════════════╝\n", .{});
         std.debug.print("\n", .{});
     }
@@ -1023,9 +1102,10 @@ const WsTrader = struct {
         std.debug.print("║                        最终交易统计                               ║\n", .{});
         std.debug.print("╚══════════════════════════════════════════════════════════════════╝\n", .{});
         std.debug.print("  交易市场数: {d}\n", .{self.stats.markets_traded});
-        std.debug.print("  总交易次数: {d}\n", .{self.stats.total_trades});
-        std.debug.print("  WS 消息数: {d}\n", .{g_stats.ws_messages_received});
-        std.debug.print("  信号数: {d}\n", .{g_stats.signals_generated});
+        std.debug.print("  暴跌检测数: {d}\n", .{self.stats.crashes_detected});
+        std.debug.print("  YES 买入数: {d}\n", .{self.stats.yes_buys});
+        std.debug.print("  对冲执行数: {d}\n", .{self.stats.hedges_executed});
+        std.debug.print("  累计利润: ${d:.2}\n", .{self.stats.total_profit});
     }
 
     pub fn stop(self: *Self) void {
@@ -1060,9 +1140,7 @@ fn log(comptime fmt: []const u8, args: anytype) void {
     std.debug.print("[{d}] " ++ fmt ++ "\n", .{timestamp} ++ args);
 }
 
-/// 解析 funder 地址（十六进制字符串转 [20]u8）
 fn parseFunderAddress(hex: []const u8) ?[20]u8 {
-    // 移除 0x 前缀
     const clean = if (hex.len >= 2 and hex[0] == '0' and (hex[1] == 'x' or hex[1] == 'X'))
         hex[2..]
     else
@@ -1093,10 +1171,10 @@ pub fn main() !void {
     defer env.deinit();
 
     // 解析签名类型
-    const sig_type_val = env.getInt(u8, "WS_TRADER_SIGNATURE_TYPE", 2); // 默认 POLY_GNOSIS_SAFE
+    const sig_type_val = env.getInt(u8, "WS_TRADER_SIGNATURE_TYPE", 2);
     const signature_type = SignatureType.fromU8(sig_type_val) orelse .POLY_GNOSIS_SAFE;
 
-    // 解析 funder/proxy 地址（用于 POLY_PROXY 或 POLY_GNOSIS_SAFE）
+    // 解析 funder/proxy 地址
     var funder: ?[20]u8 = null;
     if (env.get("POLY_FUNDER_ADDRESS") orelse env.get("POLY_ADDRESS")) |funder_hex| {
         funder = parseFunderAddress(funder_hex);
@@ -1105,14 +1183,26 @@ pub fn main() !void {
         }
     }
 
-    // 解析配置
-    const config = WsTraderConfig{
+    // 解析策略配置
+    const config = StrategyConfig{
         .dry_run = env.getBool("WS_TRADER_DRY_RUN", true),
-        .min_remaining_minutes = env.getInt(i64, "WS_TRADER_MIN_REMAINING", 5),
-        .edge_price_threshold = env.getFloat(f64, "WS_TRADER_EDGE_THRESHOLD", 0.20),
-        .prob_bias_threshold = env.getFloat(f64, "WS_TRADER_PROB_THRESHOLD", 0.55),
-        .order_size = env.getFloat(f64, "WS_TRADER_ORDER_SIZE", 50.0),
+
+        // 核心策略参数
+        .sum_target = env.getFloat(f64, "WS_TRADER_SUM_TARGET", 0.3),
+        .move_threshold = env.getFloat(f64, "WS_TRADER_MOVE", 0.01),
+        .hedge_profit_threshold = env.getFloat(f64, "WS_TRADER_HEDGE_THRESHOLD", 0.05),
+
+        // 交易参数
+        .min_order_size = env.getFloat(f64, "WS_TRADER_MIN_ORDER", 5.0),
+        .max_order_size = env.getFloat(f64, "WS_TRADER_MAX_ORDER", 50.0),
         .max_position = env.getFloat(f64, "WS_TRADER_MAX_POSITION", 200.0),
+
+        // 市场参数
+        .min_remaining_minutes = env.getInt(i64, "WS_TRADER_MIN_REMAINING", 3),
+        .edge_price_threshold = env.getFloat(f64, "WS_TRADER_EDGE_THRESHOLD", 0.05),
+        .max_spread = env.getFloat(f64, "WS_TRADER_MAX_SPREAD", 0.10),
+
+        // 系统参数
         .use_testnet = env.getBool("POLY_USE_TESTNET", false),
         .signature_type = signature_type,
         .funder = funder,
@@ -1160,14 +1250,8 @@ pub fn main() !void {
             std.debug.print("API 凭证获取成功!\n", .{});
             client.setApiCreds(&creds.?);
         }
-    } else {
-        client = ClobClient.init(allocator, client_config);
-    }
-    defer client.deinit();
-    defer if (creds) |*c| c.deinit();
 
-    // 实盘模式下检查余额和 allowance
-    if (!config.dry_run) {
+        // 检查余额
         const bal_result = client.getBalanceAllowance(.{
             .asset_type = .COLLATERAL,
             .signature_type = @intFromEnum(config.signature_type),
@@ -1187,32 +1271,33 @@ pub fn main() !void {
         std.debug.print("\n账户状态:\n", .{});
         std.debug.print("  余额:     ${d:.2} USDC\n", .{bal_usdc});
         std.debug.print("  Allowance: ${d:.2} USDC\n", .{allow_usdc});
-        std.debug.print("  订单金额: ${d:.2}\n", .{config.order_size});
+        std.debug.print("  最大仓位: ${d:.2}\n", .{config.max_position});
 
         if (allow_val == 0) {
-            std.debug.print("\n⚠️  Allowance 为 0！无法交易\n", .{});
-            std.debug.print("   请在 Polymarket 网站上授权 USDC\n", .{});
-            return error.InsufficientAllowance;
+            std.debug.print("\n⚠️  Allowance 为 0！下单可能失败\n", .{});
         }
 
-        if (bal_usdc < config.order_size) {
-            std.debug.print("\n⚠️  余额 (${d:.2}) 小于订单金额 (${d:.2})\n", .{ bal_usdc, config.order_size });
-            std.debug.print("   请充值或减小 WS_TRADER_ORDER_SIZE\n", .{});
+        if (bal_usdc < config.max_order_size) {
+            std.debug.print("\n⚠️  余额不足\n", .{});
             return error.InsufficientBalance;
         }
 
         std.debug.print("\n", .{});
+    } else {
+        client = ClobClient.init(allocator, client_config);
     }
+    defer client.deinit();
+    defer if (creds) |*c| c.deinit();
 
-    // 创建 WebSocket 交易系统
-    var trader = WsTrader.init(
+    // 创建机器人
+    var bot = HedgeArbitrageBot.init(
         allocator,
         &client,
         if (wallet) |*w| w else null,
         config,
     );
-    defer trader.deinit();
+    defer bot.deinit();
 
     // 运行
-    try trader.run();
+    try bot.run();
 }
