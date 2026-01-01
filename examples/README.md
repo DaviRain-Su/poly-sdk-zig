@@ -14,7 +14,9 @@
 | `btc_hedge_strategy.zig` | BTC 二元期权对冲套利策略 | 是 |
 | `find_btc_markets.zig` | BTC 市场搜索工具 | 否 |
 | `btc_15m_monitor.zig` | BTC 15分钟市场实时监控 | 否 |
-| `btc_auto_trader.zig` | BTC 15分钟自动交易系统 | 是（实盘）/否（模拟）|
+| `btc_auto_trader.zig` | BTC 15分钟自动交易系统 v1 | 是（实盘）/否（模拟）|
+| `btc_orderbook_monitor.zig` | BTC 15分钟订单簿监控 | 否 |
+| `btc_smart_trader.zig` | BTC 15分钟智能交易系统 v2 | 是（实盘）/否（模拟）|
 
 ## 示例说明
 
@@ -175,6 +177,76 @@ zig build run-btc_auto_trader
 
 **用途**：将监控和策略结合，实现全自动交易。无需手动配置 Token ID，系统会自动发现市场并执行策略。
 
+### btc_orderbook_monitor.zig
+
+BTC 15分钟市场订单簿实时监控：
+- 显示 UP 和 DOWN 两边的订单簿
+- 最佳买卖价、价差、中间价
+- 买卖盘深度分析
+- 套利机会检测（UP + DOWN != 1.0）
+- 自动切换到下一个市场
+
+**命令**：
+```bash
+zig build run-btc_orderbook_monitor
+```
+
+### btc_smart_trader.zig
+
+BTC 15分钟市场智能交易系统 v2（改进版）：
+
+**核心改进**：
+- **真实价差分析**：忽略边缘订单（0.01-0.20, 0.80-0.99），找到真正的买卖价差
+- **多策略模式**：支持做市、套利、趋势跟随、混合模式
+- **动量指标**：基于价格历史计算动量和波动率
+- **风险管理**：根据波动率调整策略行为
+
+**策略模式**：
+| 模式 | 描述 |
+|------|------|
+| `market_maker` | 做市商策略：在价差两侧挂单赚取价差 |
+| `arbitrage` | 套利策略：当 UP + DOWN != 1.0 时套利 |
+| `trend_follower` | 趋势跟随：跟随价格动量方向交易 |
+| `hybrid` | 混合模式：综合使用多种策略（默认） |
+
+**配置（.env 文件）**：
+```bash
+# 策略模式
+SMART_TRADER_MODE=hybrid           # hybrid/market_maker/arbitrage/trend
+
+# 模式控制
+SMART_TRADER_DRY_RUN=true          # true=模拟模式, false=实盘
+
+# 策略参数
+SMART_TRADER_EDGE_THRESHOLD=0.20   # 边缘价格阈值
+SMART_TRADER_MM_SPREAD=0.02        # 做市最小价差
+SMART_TRADER_ARB_THRESHOLD=0.02    # 套利阈值
+SMART_TRADER_TREND_THRESHOLD=0.05  # 趋势阈值
+SMART_TRADER_ORDER_SIZE=50.0       # 单次订单金额
+SMART_TRADER_MAX_POSITION=200.0    # 最大仓位
+
+# 实盘模式 - 只需要私钥！
+POLY_PRIVATE_KEY=your_private_key_without_0x_prefix
+```
+
+**运行**：
+```bash
+# 模拟模式（默认）
+zig build run-btc_smart_trader
+
+# 实盘模式（需要配置 SMART_TRADER_DRY_RUN=false）
+zig build run-btc_smart_trader
+```
+
+**关键洞察**：
+
+之前的问题是看到 0.01 买价 / 0.99 卖价（98% 价差），认为市场流动性很差。但实际上这只是边缘做市商的订单。真正的中间价格区域（0.40-0.60）有活跃的订单簿：
+- 真实买价: ~0.51
+- 真实卖价: ~0.52
+- 真实价差: ~0.01 (1%)
+
+这个版本通过过滤边缘订单，找到真实的市场价格，使策略能够正常运作。
+
 ## 运行示例
 
 示例可通过 build.zig 构建和运行：
@@ -193,7 +265,9 @@ zig build run-btc_hedge_strategy    # BTC 对冲策略
 zig build run-find_btc_markets      # BTC 市场搜索
 zig build run-btc_15m_monitor       # BTC 15分钟市场监控
 zig build run-btc_15m_monitor -- --once  # 单次扫描
-zig build run-btc_auto_trader       # BTC 自动交易系统
+zig build run-btc_auto_trader       # BTC 自动交易系统 v1
+zig build run-btc_orderbook_monitor # BTC 订单簿监控
+zig build run-btc_smart_trader      # BTC 智能交易系统 v2
 
 # 查看所有可用命令
 zig build --help | grep run-

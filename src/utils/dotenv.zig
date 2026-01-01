@@ -162,7 +162,20 @@ pub const DotEnv = struct {
         const value_trimmed = std.mem.trim(u8, value_raw, " \t");
 
         // 处理引号
-        const value = self.unquote(value_trimmed);
+        const value_unquoted = self.unquote(value_trimmed);
+
+        // 如果没有引号，去除行内注释（# 后面的内容）
+        // 注意：带引号的值保留注释符号
+        const value = if (value_trimmed.len > 0 and (value_trimmed[0] == '"' or value_trimmed[0] == '\''))
+            value_unquoted // 带引号的值不处理注释
+        else blk: {
+            // 查找行内注释
+            if (std.mem.indexOf(u8, value_unquoted, "#")) |hash_pos| {
+                // 去除 # 及之后的内容，并 trim 空白
+                break :blk std.mem.trim(u8, value_unquoted[0..hash_pos], " \t");
+            }
+            break :blk value_unquoted;
+        };
 
         // 复制 key 和 value
         const key_copy = self.allocator.dupe(u8, key) catch {

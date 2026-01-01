@@ -431,6 +431,7 @@ const AutoTrader = struct {
     fn executeStrategy(self: *Self, market: MarketInfo) !void {
         const end_time = market.end_timestamp;
         var iteration: u64 = 0;
+        var consecutive_failures: u32 = 0;
 
         while (self.running and !self.state.is_hedged) {
             iteration += 1;
@@ -445,10 +446,19 @@ const AutoTrader = struct {
 
             // 获取当前价格
             const current_price = self.getYesPrice(market.getYesTokenId()) catch |err| {
-                log("获取价格失败: {}, 重试...", .{err});
-                std.Thread.sleep(self.config.price_poll_interval_ms * std.time.ns_per_ms);
+                consecutive_failures += 1;
+                // 只在第一次失败或每5次失败时打印日志
+                if (consecutive_failures == 1 or consecutive_failures % 5 == 0) {
+                    log("获取价格失败 (连续 {d} 次): {}", .{ consecutive_failures, err });
+                }
+                // 连续失败越多，等待时间越长（最长 5 秒）
+                const wait_ms = @min(self.config.price_poll_interval_ms * consecutive_failures, 5000);
+                std.Thread.sleep(wait_ms * std.time.ns_per_ms);
                 continue;
             };
+
+            // 成功获取价格，重置失败计数
+            consecutive_failures = 0;
 
             // 定期日志
             if (iteration % 20 == 1) {

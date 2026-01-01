@@ -207,6 +207,16 @@ pub fn build(b: *std.Build) void {
             .source = "examples/btc_orderbook_monitor.zig",
             .description = "Monitor BTC 15m market order books (bid/ask depth)",
         },
+        .{
+            .name = "btc_smart_trader",
+            .source = "examples/btc_smart_trader.zig",
+            .description = "Smart BTC 15m trader v2 (market making, arbitrage, trend)",
+        },
+        .{
+            .name = "debug_env",
+            .source = "examples/debug_env.zig",
+            .description = "Debug .env file loading",
+        },
     };
 
     // Create a step to build and install all examples
