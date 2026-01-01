@@ -66,6 +66,24 @@ const StrategyConfig = struct {
     /// - 0.05 = 价格比买入均价高 5% 时对冲
     hedge_profit_threshold: f64 = 0.05,
 
+    /// ========== 风险管理参数 ==========
+    /// 止损阈值：亏损超过此比例时强制平仓
+    /// - 0.30 = 亏损 30% 时止损
+    stop_loss_threshold: f64 = 0.30,
+
+    /// 无流动性时强制平仓的剩余时间（秒）
+    /// - 当 bid=0 且剩余时间少于此值时，尝试以任何价格卖出
+    force_exit_remaining: i64 = 120,
+
+    /// 止盈阈值：对冲后如果 YES 价格涨到此值以上，卖出 YES
+    /// - 0.90 = YES 价格涨到 90% 以上时卖出
+    take_profit_threshold: f64 = 0.90,
+
+    /// 最高买入价格：只在价格低于此值时买入
+    /// - 0.50 = 只在 YES 价格 < 50% 时买入（保守）
+    /// - 0.60 = 只在 YES 价格 < 60% 时买入（激进）
+    max_buy_price: f64 = 0.50,
+
     /// ========== 交易参数 ==========
     /// 单次最小订单金额（美元）
     min_order_size: f64 = 5.0,
@@ -558,6 +576,53 @@ const HedgeArbitrageBot = struct {
                 self.printLiveStatus(market);
             }
 
+            // ========== 风险管理 ==========
+
+            // 1. 止损检查：亏损超过阈值时强制对冲
+            if (self.yes_position.shares > 0 and self.phase != .hedged) {
+                const current_value = yes_price * self.yes_position.shares;
+                const loss_ratio = (self.yes_position.total_cost - current_value) / self.yes_position.total_cost;
+
+                if (loss_ratio >= self.config.stop_loss_threshold) {
+                    log("", .{});
+                    log("  🛑 触发止损! 亏损 {d:.1}% >= {d:.1}%", .{ loss_ratio * 100, self.config.stop_loss_threshold * 100 });
+                    log("  成本: ${d:.2}, 当前价值: ${d:.2}", .{ self.yes_position.total_cost, current_value });
+
+                    // 尝试对冲锁定剩余价值
+                    const hedge_success = try self.executeHedge(market, yes_price);
+                    if (hedge_success) {
+                        self.phase = .hedged;
+                        log("  ✅ 止损对冲成功，锁定剩余价值", .{});
+                    } else {
+                        log("  ⚠️ 止损对冲失败，将继续尝试", .{});
+                    }
+                }
+            }
+
+            // 2. 无流动性强制退出：当 bid=0 且时间紧迫时
+            if (self.yes_position.shares > 0 and g_live_book.up_best_bid <= 0.001 and remaining <= self.config.force_exit_remaining) {
+                log("", .{});
+                log("  🆘 无流动性紧急处理! bid=0, 剩余 {d} 秒", .{remaining});
+
+                // 尝试对冲（买入 NO）
+                if (self.phase != .hedged and g_live_book.down_best_ask < 1.0) {
+                    log("  尝试紧急对冲（买入 NO）...", .{});
+                    const hedge_success = try self.executeHedge(market, yes_price);
+                    if (hedge_success) {
+                        self.phase = .hedged;
+                        log("  ✅ 紧急对冲成功!", .{});
+                    }
+                }
+            }
+
+            // 3. 止盈检查：对冲后如果 YES 价格涨到很高，可以卖出 YES
+            if (self.phase == .hedged and yes_price >= self.config.take_profit_threshold and g_live_book.up_best_bid > 0) {
+                log("", .{});
+                log("  💰 触发止盈! YES 价格 {d:.4} >= {d:.2}", .{ yes_price, self.config.take_profit_threshold });
+                log("  建议手动卖出 YES 锁定利润（自动卖出功能待实现）", .{});
+                // TODO: 实现自动卖出 YES
+            }
+
             // ========== 策略核心逻辑 ==========
 
             switch (self.phase) {
@@ -596,11 +661,22 @@ const HedgeArbitrageBot = struct {
                 },
 
                 .waiting_for_rebound => {
-                    // 第二步：等待价格反弹，然后对冲
+                    // 第二步：等待能够盈利对冲的机会
                     const avg_buy_price = self.yes_position.avgPrice();
-                    const profit_ratio = (yes_price - avg_buy_price) / avg_buy_price;
+                    const no_ask_price = g_live_book.down_best_ask;
 
-                    if (profit_ratio >= self.config.hedge_profit_threshold) {
+                    // 🔴 关键检查：对冲后是否盈利？
+                    // YES成本 + NO成本 必须 < $1 才能盈利！
+                    const total_cost_per_share = avg_buy_price + no_ask_price;
+                    const expected_profit_per_share = 1.0 - total_cost_per_share;
+
+                    // 只有当预期利润 > 0 时才对冲
+                    if (expected_profit_per_share > 0) {
+                        log("", .{});
+                        log("  📊 对冲机会分析:", .{});
+                        log("    YES 均价: {d:.4}, NO 卖价: {d:.4}", .{ avg_buy_price, no_ask_price });
+                        log("    总成本/股: ${d:.4}, 预期利润/股: ${d:.4}", .{ total_cost_per_share, expected_profit_per_share });
+
                         const hedge_success = try self.executeHedge(market, yes_price);
                         if (hedge_success) {
                             self.phase = .hedged;
@@ -619,8 +695,8 @@ const HedgeArbitrageBot = struct {
                                 locked_value - total_cost,
                             });
                         }
-                        // 如果对冲失败，保持 waiting_for_rebound 状态，下次继续尝试
                     }
+                    // 如果不盈利，继续等待更好的机会
                 },
 
                 .hedged => {
@@ -670,6 +746,13 @@ const HedgeArbitrageBot = struct {
 
     /// 执行买入 YES
     fn executeBuyYes(self: *Self, market: MarketInfo, current_price: f64) !void {
+        // 🔴 关键检查：只在低价时买入！
+        // 这是套利策略，不是追涨 - 只在价格足够低时才买
+        if (current_price > self.config.max_buy_price) {
+            // 价格太高，等待更低的价格
+            return;
+        }
+
         // 检查价差
         const spread = g_live_book.up_best_ask - g_live_book.up_best_bid;
         if (spread > self.config.max_spread) {
@@ -688,10 +771,23 @@ const HedgeArbitrageBot = struct {
 
         // 限制不超过剩余额度
         const remaining_budget = self.config.max_position * self.config.sum_target - self.yes_position.total_cost;
-        buy_amount = @min(buy_amount, remaining_budget);
 
-        if (buy_amount < self.config.min_order_size) {
-            return; // 金额太小
+        // 如果剩余预算小于最小订单，但大于 $1，则买入剩余预算完成目标
+        if (remaining_budget < self.config.min_order_size) {
+            if (remaining_budget >= 1.0) {
+                // 剩余预算不多但足够下单，完成买入
+                buy_amount = remaining_budget;
+                log("  📦 剩余预算 ${d:.2} < 最小订单，完成最后买入", .{remaining_budget});
+            } else {
+                // 剩余预算太小，跳过
+                return;
+            }
+        } else {
+            buy_amount = @min(buy_amount, remaining_budget);
+        }
+
+        if (buy_amount < 1.0) {
+            return; // 金额太小（API 最低 $1）
         }
 
         // 计算股数
@@ -1000,15 +1096,40 @@ const HedgeArbitrageBot = struct {
             self.config.sum_target * 100,
         });
 
-        // 显示潜在利润（使用 bid 价，即实际能卖出的价格）
+        // 显示对冲分析
         if (self.yes_position.shares > 0 and self.phase != .hedged) {
             const avg_buy = self.yes_position.avgPrice();
-            const sell_price = g_live_book.up_best_bid; // 用 bid 价计算（实际卖出价）
-            const current_profit = (sell_price - avg_buy) * self.yes_position.shares;
-            std.debug.print("║  当前浮盈: ${d:>7.2}   (按bid价, 反弹 {d:.2}% 后对冲)                 ║\n", .{
-                current_profit,
-                self.config.hedge_profit_threshold * 100,
+            const no_ask = g_live_book.down_best_ask;
+            const total_cost_per_share = avg_buy + no_ask;
+            const hedge_profit_per_share = 1.0 - total_cost_per_share;
+            const total_hedge_profit = hedge_profit_per_share * self.yes_position.shares;
+
+            // 显示当前浮盈（按 bid 价）
+            const sell_price = g_live_book.up_best_bid;
+            const current_value = sell_price * self.yes_position.shares;
+            const unrealized_pnl = current_value - self.yes_position.total_cost;
+
+            std.debug.print("║  当前浮盈: ${d:>7.2}   (按bid={d:.2})                                ║\n", .{
+                unrealized_pnl,
+                sell_price,
             });
+
+            // 显示如果现在对冲的预期盈亏
+            if (hedge_profit_per_share > 0) {
+                std.debug.print("║  🟢 如对冲: ${d:>7.2}   (YES {d:.2} + NO {d:.2} = {d:.2} < $1)       ║\n", .{
+                    total_hedge_profit,
+                    avg_buy,
+                    no_ask,
+                    total_cost_per_share,
+                });
+            } else {
+                std.debug.print("║  🔴 如对冲: ${d:>7.2}   (YES {d:.2} + NO {d:.2} = {d:.2} > $1)       ║\n", .{
+                    total_hedge_profit,
+                    avg_buy,
+                    no_ask,
+                    total_cost_per_share,
+                });
+            }
         }
 
         if (self.phase == .hedged) {
@@ -1375,6 +1496,12 @@ pub fn main() !void {
         .sum_target = env.getFloat(f64, "WS_TRADER_SUM_TARGET", 0.3),
         .move_threshold = env.getFloat(f64, "WS_TRADER_MOVE", 0.01),
         .hedge_profit_threshold = env.getFloat(f64, "WS_TRADER_HEDGE_THRESHOLD", 0.05),
+
+        // 风险管理参数
+        .stop_loss_threshold = env.getFloat(f64, "WS_TRADER_STOP_LOSS", 0.30),
+        .force_exit_remaining = env.getInt(i64, "WS_TRADER_FORCE_EXIT_TIME", 120),
+        .take_profit_threshold = env.getFloat(f64, "WS_TRADER_TAKE_PROFIT", 0.90),
+        .max_buy_price = env.getFloat(f64, "WS_TRADER_MAX_BUY_PRICE", 0.50),
 
         // 交易参数
         .min_order_size = env.getFloat(f64, "WS_TRADER_MIN_ORDER", 5.0),
