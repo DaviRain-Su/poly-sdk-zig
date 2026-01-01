@@ -353,9 +353,9 @@ pub const HttpClient = struct {
             }
         }
 
-        // Prepare response buffer
-        var response_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 4096);
-        errdefer response_buffer.deinit(self.allocator);
+        // Prepare response writer using Zig 0.15 API
+        var response_writer = try std.Io.Writer.Allocating.initCapacity(self.allocator, 4096);
+        errdefer response_writer.deinit();
 
         // Make request using fetch API
         const result = self.client.fetch(.{
@@ -363,15 +363,19 @@ pub const HttpClient = struct {
             .method = method,
             .payload = body,
             .extra_headers = extra_headers.items,
-            .response_storage = .{ .dynamic = &response_buffer },
+            .response_writer = &response_writer.writer,
         }) catch |err| {
             return mapFetchError(err);
         };
 
+        // Get the response body from the allocating writer
+        var array_list = response_writer.toArrayList();
+        const response_body = try array_list.toOwnedSlice(self.allocator);
+
         return Response{
             .allocator = self.allocator,
             .status = result.status,
-            .body = try response_buffer.toOwnedSlice(self.allocator),
+            .body = response_body,
         };
     }
 

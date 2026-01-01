@@ -183,6 +183,11 @@ pub fn build(b: *std.Build) void {
             .description = "BTC 15m WebSocket real-time trading system",
         },
         .{
+            .name = "split_merge_arb",
+            .source = "examples/split_merge_arb.zig",
+            .description = "Split/Merge arbitrage bot",
+        },
+        .{
             .name = "btc_orderbook_monitor",
             .source = "examples/btc_orderbook_monitor.zig",
             .description = "BTC 15m order book real-time monitor",

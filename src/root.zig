@@ -77,6 +77,9 @@ pub const ws = @import("ws/mod.zig");
 /// Utilities module (dotenv, etc.)
 pub const utils = @import("utils/mod.zig");
 
+/// CTF (Conditional Token Framework) module
+pub const ctf = @import("ctf/mod.zig");
+
 // Re-export CLOB client at root level for convenience
 pub const ClobClient = clob.ClobClient;
 
@@ -155,6 +158,11 @@ pub const DotEnv = utils.DotEnv;
 pub const DotEnvError = utils.DotEnvError;
 pub const loadEnv = utils.loadEnv;
 pub const loadEnvOrEmpty = utils.loadEnvOrEmpty;
+
+// Re-export CTF types
+pub const CtfClient = ctf.CtfClient;
+pub const SplitResult = ctf.SplitResult;
+pub const MergeResult = ctf.MergeResult;
 
 // ============================================================================
 // Tests
@@ -243,6 +251,7 @@ test "all submodules" {
     _ = @import("rfq/mod.zig");
     _ = @import("ws/mod.zig");
     _ = @import("utils/mod.zig");
+    _ = @import("ctf/mod.zig");
 }
 
 test "utils module exports" {

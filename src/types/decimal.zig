@@ -96,6 +96,42 @@ pub const Decimal = struct {
         return Decimal{ .mantissa = mantissa, .scale = scale };
     }
 
+    /// Create from floating point number.
+    /// Note: Due to floating point representation, this may not be perfectly precise.
+    /// For critical financial calculations, prefer fromString.
+    pub fn fromFloat(value: f64) !Decimal {
+        // Handle special cases
+        if (std.math.isNan(value) or std.math.isInf(value)) {
+            return error.InvalidDecimalString;
+        }
+
+        // Convert to string with sufficient precision
+        var buf: [64]u8 = undefined;
+        const str = std.fmt.bufPrint(&buf, "{d:.8}", .{value}) catch {
+            return error.InvalidDecimalString;
+        };
+
+        // Trim trailing zeros after decimal point
+        var end = str.len;
+        var has_dot = false;
+        for (str) |c| {
+            if (c == '.') {
+                has_dot = true;
+                break;
+            }
+        }
+        if (has_dot) {
+            while (end > 0 and str[end - 1] == '0') {
+                end -= 1;
+            }
+            if (end > 0 and str[end - 1] == '.') {
+                end -= 1;
+            }
+        }
+
+        return fromString(str[0..end]);
+    }
+
     /// Get the scale (number of decimal places)
     pub fn getScale(self: Decimal) u8 {
         return self.scale;

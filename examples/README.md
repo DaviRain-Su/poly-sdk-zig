@@ -14,6 +14,7 @@
 | `btc_ws_trader.zig` | BTC 15分钟 两步对冲套利交易系统 | 是（实盘）/否（模拟）|
 | `smart_auto_trade.zig` | BTC 15分钟 概率偏差自动交易系统 | 是（实盘）/否（模拟）|
 | `btc_orderbook_monitor.zig` | BTC 15分钟订单簿实时监控 | 否 |
+| `split_merge_arb.zig` | Split/Merge 无风险套利机器人 | 是 |
 
 ## 运行示例
 
@@ -30,6 +31,7 @@ zig build run-websocket             # WebSocket 演示
 zig build run-btc_ws_trader         # BTC 两步对冲套利系统
 zig build run-smart_auto_trade      # BTC 概率偏差交易系统
 zig build run-btc_orderbook_monitor # BTC 订单簿监控
+zig build run-split_merge_arb      # Split/Merge 套利机器人
 ```
 
 ## 配置
@@ -57,6 +59,12 @@ SMART_TRADER_DRY_RUN=true           # true=模拟模式, false=实盘
 SMART_TRADER_PROB_THRESHOLD=0.55    # 概率偏差阈值 (55%)
 SMART_TRADER_ORDER_SIZE=5.0         # 每单金额（美元）
 SMART_TRADER_MAX_POSITION=50.0      # 最大持仓（美元）
+
+# split_merge_arb 配置
+ARB_DRY_RUN=true                    # true=模拟模式, false=实盘
+ARB_MIN_PROFIT=0.02                 # 最小利润阈值（美元）
+ARB_ORDER_SIZE=10                   # 每次套利金额（美元）
+ARB_RPC_URL=https://polygon-rpc.com # Polygon RPC 节点
 ```
 
 ## 注意事项
