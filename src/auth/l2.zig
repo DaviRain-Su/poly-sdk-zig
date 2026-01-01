@@ -108,6 +108,9 @@ pub const L2Auth = struct {
     /// 计算 HMAC-SHA256 签名
     ///
     /// 签名消息格式: timestamp + method + path + body
+    ///
+    /// 注意：Polymarket API 的 secret 是 Base64 编码的，需要先解码
+    /// 签名输出使用 URL-safe Base64 编码
     fn computeSignature(
         self: *const Self,
         timestamp: []const u8,
@@ -116,8 +119,23 @@ pub const L2Auth = struct {
         body: ?[]const u8,
         out: *[44]u8,
     ) []const u8 {
-        // 使用增量 HMAC 计算
-        var h = hmac.Hmac.init(self.creds.getApiSecret());
+        // 1. 解码 API secret（它是 Base64 编码的）
+        var secret_buffer: [hmac.BASE64_DECODED_MAX_LENGTH]u8 = undefined;
+        const decoded_secret = hmac.decodeBase64Secret(self.creds.getApiSecret(), &secret_buffer) orelse {
+            // 如果解码失败，使用原始字符串（向后兼容）
+            var h = hmac.Hmac.init(self.creds.getApiSecret());
+            h.update(timestamp);
+            h.update(method);
+            h.update(path);
+            if (body) |b| {
+                h.update(b);
+            }
+            const mac = h.final();
+            return hmac.toBase64UrlSafe(&mac, out);
+        };
+
+        // 2. 使用解码后的 secret 计算 HMAC
+        var h = hmac.Hmac.init(decoded_secret);
         h.update(timestamp);
         h.update(method);
         h.update(path);
@@ -126,8 +144,8 @@ pub const L2Auth = struct {
         }
         const mac = h.final();
 
-        // Base64 编码
-        return hmac.toBase64(&mac, out);
+        // 3. 使用 URL-safe Base64 编码输出
+        return hmac.toBase64UrlSafe(&mac, out);
     }
 
     /// 获取 API Key
@@ -417,11 +435,47 @@ test "L2Auth signature matches expected format" {
         .body = null,
     }, 1704067200);
 
-    // 手动计算预期签名
-    const message = "1704067200GET/";
-    const expected_mac = hmac.hmacSha256("test-secret", message);
-    var expected_sig: [44]u8 = undefined;
-    const expected = hmac.toBase64(&expected_mac, &expected_sig);
+    // 签名应该是 URL-safe Base64 格式
+    const sig = header.getSignature();
+    try std.testing.expectEqual(@as(usize, 44), sig.len);
 
-    try std.testing.expectEqualStrings(expected, header.getSignature());
+    // 验证不包含标准 Base64 的特殊字符
+    for (sig) |c| {
+        // URL-safe base64 只包含: A-Z, a-z, 0-9, -, _, =
+        try std.testing.expect(c == '-' or c == '_' or c == '=' or
+            (c >= 'A' and c <= 'Z') or
+            (c >= 'a' and c <= 'z') or
+            (c >= '0' and c <= '9'));
+    }
+}
+
+test "L2Auth signature matches Rust reference implementation" {
+    // 这个测试用例来自 Rust 参考实现 (rs-clob-client/src/auth.rs)
+    // 测试数据:
+    //   secret: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" (全 0 的 32 字节)
+    //   timestamp: 1
+    //   method: GET
+    //   path: /
+    //   body: null
+    //   expected signature: "eHaylCwqRSOa2LFD77Nt_SaTpbsxzN8eTEI3LryhEj4="
+    const allocator = std.testing.allocator;
+
+    var creds = try ApiCreds.init(
+        allocator,
+        "00000000-0000-0000-0000-000000000000", // Uuid::nil()
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", // Base64 encoded 32 zeros
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
+    defer creds.deinit();
+
+    const l2 = L2Auth.init(&creds);
+
+    const header = try l2.generateHeaderWithTimestamp(.{
+        .method = "GET",
+        .path = "/",
+        .body = null,
+    }, 1); // timestamp = 1
+
+    // 这个预期值来自 Rust 测试: l2_headers_should_succeed
+    try std.testing.expectEqualStrings("eHaylCwqRSOa2LFD77Nt_SaTpbsxzN8eTEI3LryhEj4=", header.getSignature());
 }
