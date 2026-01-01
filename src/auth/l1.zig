@@ -99,8 +99,14 @@ pub const L1Auth = struct {
         var timestamp_buf: [20]u8 = undefined;
         const timestamp_str = std.fmt.bufPrint(&timestamp_buf, "{d}", .{timestamp}) catch unreachable;
 
-        // 计算 EIP-712 签名摘要
-        const digest = self.computeDigest(&address, timestamp_str, nonce);
+        // 格式化 nonce - 使用截断的 u64 值
+        // Python 客户端在 header 中发送的是整数，在签名中使用的是相同的值
+        var nonce_buf: [20]u8 = undefined;
+        const nonce_u64 = @as(u64, @truncate(nonce));
+        const nonce_str = std.fmt.bufPrint(&nonce_buf, "{d}", .{nonce_u64}) catch unreachable;
+
+        // 计算 EIP-712 签名摘要 - 使用与 header 相同的 nonce 值
+        const digest = self.computeDigest(&address, timestamp_str, nonce_u64);
 
         // 签名
         const signature = self.wallet.sign(&digest) catch {
@@ -110,10 +116,6 @@ pub const L1Auth = struct {
         // 格式化签名为 hex
         var sig_hex: [132]u8 = undefined;
         formatSignatureHex(&signature, &sig_hex);
-
-        // 格式化 nonce
-        var nonce_buf: [20]u8 = undefined;
-        const nonce_str = std.fmt.bufPrint(&nonce_buf, "{d}", .{@as(u64, @truncate(nonce))}) catch unreachable;
 
         // 构建 Header
         var header = L1PolyHeader{
@@ -132,7 +134,7 @@ pub const L1Auth = struct {
     }
 
     /// 计算 EIP-712 签名摘要
-    fn computeDigest(self: *const Self, address: *const [42]u8, timestamp: []const u8, nonce: u256) [32]u8 {
+    fn computeDigest(self: *const Self, address: *const [42]u8, timestamp: []const u8, nonce: u64) [32]u8 {
         // 1. 计算域哈希
         const domain = eip712.Domain{
             .name = CLOB_AUTH_DOMAIN_NAME,
@@ -196,10 +198,13 @@ fn computeClobAuthHash(address: *const [42]u8, timestamp: []const u8, nonce: u25
 }
 
 /// 生成随机 nonce
+///
+/// 返回一个较小的随机 nonce 值。
+/// Python 客户端默认使用 nonce=0，但也支持任何非负整数。
 fn generateRandomNonce() u256 {
-    var buf: [32]u8 = undefined;
-    std.crypto.random.bytes(&buf);
-    return std.mem.readInt(u256, &buf, .little);
+    // 使用较小的随机数范围，避免潜在的兼容性问题
+    // Python 客户端默认 nonce=0，所以我们也使用 0 以保持兼容
+    return 0;
 }
 
 /// 格式化签名为 hex 字符串

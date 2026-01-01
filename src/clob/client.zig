@@ -360,14 +360,17 @@ pub const ClobClient = struct {
         errdefer body.deinit(self.allocator);
 
         while (true) {
-            const n = try stdout.read(&read_buffer);
+            const n = stdout.read(&read_buffer) catch {
+                return Error.ConnectionFailed;
+            };
             if (n == 0) break;
             try body.appendSlice(self.allocator, read_buffer[0..n]);
         }
 
-        const result = try child.wait();
+        const result = child.wait() catch {
+            return Error.ConnectionFailed;
+        };
         if (result != .Exited or result.Exited != 0) {
-            body.deinit(self.allocator);
             return Error.ConnectionFailed;
         }
 
@@ -744,9 +747,7 @@ pub const ClobClient = struct {
     // =========================================================================
 
     /// Perform L1 authenticated POST request
-    ///
-    /// L1 authentication uses EIP-712 signatures for wallet verification.
-    /// Used for creating and deriving API keys.
+    /// Uses curl subprocess for reliable gzip and encoding handling
     fn doL1Post(self: *ClobClient, path: []const u8, body: ?[]const u8) ![]u8 {
         const wallet = self.wallet orelse return Error.Unauthorized;
 
@@ -757,52 +758,76 @@ pub const ClobClient = struct {
         const l1 = L1Auth.init(wallet, .{ .chain_id = self.config.chain_id });
         const auth_header = l1.generateHeader() catch return Error.Unauthorized;
 
-        const poly_headers = auth_header.toHttpHeaders();
-
-        const uri = std.Uri.parse(url) catch return Error.BadRequest;
-
-        var req = self.http_client.request(.POST, uri, .{
-            .extra_headers = &[_]std.http.Header{
-                .{ .name = "Accept", .value = "application/json" },
-                .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
-                .{ .name = "Content-Type", .value = "application/json" },
-                poly_headers[0],
-                poly_headers[1],
-                poly_headers[2],
-                poly_headers[3],
-            },
-        }) catch |err| {
-            return switch (err) {
-                error.ConnectionRefused => Error.ConnectionRefused,
-                error.ConnectionResetByPeer => Error.ConnectionReset,
-                error.ConnectionTimedOut => Error.Timeout,
-                error.NetworkUnreachable => Error.ConnectionFailed,
-                error.UnknownHostName => Error.DnsResolutionFailed,
-                else => Error.ConnectionFailed,
-            };
-        };
-        defer req.deinit();
-
-        // Send body (POST always needs a body, even if empty)
         const actual_body = body orelse "{}";
-        req.transfer_encoding = .{ .content_length = actual_body.len };
-        var body_writer = req.sendBodyUnflushed(&.{}) catch return Error.ConnectionFailed;
-        body_writer.writer.writeAll(actual_body) catch return Error.ConnectionFailed;
-        body_writer.end() catch return Error.ConnectionFailed;
-        if (req.connection) |conn| {
-            conn.flush() catch return Error.ConnectionFailed;
+
+        // Build header strings
+        var addr_header_buf: [128]u8 = undefined;
+        const addr_header = std.fmt.bufPrint(&addr_header_buf, "POLY_ADDRESS: {s}", .{auth_header.getAddress()}) catch return Error.ConnectionFailed;
+
+        var sig_header_buf: [256]u8 = undefined;
+        const sig_header = std.fmt.bufPrint(&sig_header_buf, "POLY_SIGNATURE: {s}", .{auth_header.getSignature()}) catch return Error.ConnectionFailed;
+
+        var ts_header_buf: [64]u8 = undefined;
+        const ts_header = std.fmt.bufPrint(&ts_header_buf, "POLY_TIMESTAMP: {s}", .{auth_header.getTimestamp()}) catch return Error.ConnectionFailed;
+
+        var nonce_header_buf: [64]u8 = undefined;
+        const nonce_header = std.fmt.bufPrint(&nonce_header_buf, "POLY_NONCE: {s}", .{auth_header.getNonce()}) catch return Error.ConnectionFailed;
+
+        // Use curl subprocess with proper argument array
+        const argv: []const []const u8 = &.{
+            "curl",
+            "-s",
+            "-f", // Fail on HTTP errors
+            "-X",
+            "POST",
+            "-H",
+            "Accept: application/json",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            addr_header,
+            "-H",
+            sig_header,
+            "-H",
+            ts_header,
+            "-H",
+            nonce_header,
+            "-d",
+            actual_body,
+            url,
+        };
+
+        var child = std.process.Child.init(argv, self.allocator);
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
+
+        try child.spawn();
+
+        const stdout = child.stdout.?;
+        var read_buffer: [8192]u8 = undefined;
+        var response_body = try std.ArrayList(u8).initCapacity(self.allocator, 1024 * 1024);
+        errdefer response_body.deinit(self.allocator);
+
+        while (true) {
+            const n = stdout.read(&read_buffer) catch {
+                return Error.ConnectionFailed;
+            };
+            if (n == 0) break;
+            try response_body.appendSlice(self.allocator, read_buffer[0..n]);
         }
 
-        var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
-
-        if (errorFromStatus(response.head.status)) |err| {
-            return err;
+        const result = child.wait() catch {
+            return Error.ConnectionFailed;
+        };
+        if (result != .Exited or result.Exited != 0) {
+            return Error.ConnectionFailed;
         }
 
-        return readResponseBody(self.allocator, &response) catch return Error.ConnectionFailed;
+        return try response_body.toOwnedSlice(self.allocator);
     }
 
     /// Perform L1 authenticated GET request
+    /// Uses curl subprocess for reliable gzip and encoding handling
     fn doL1Get(self: *ClobClient, path: []const u8) ![]u8 {
         const wallet = self.wallet orelse return Error.Unauthorized;
 
@@ -813,40 +838,68 @@ pub const ClobClient = struct {
         const l1 = L1Auth.init(wallet, .{ .chain_id = self.config.chain_id });
         const auth_header = l1.generateHeader() catch return Error.Unauthorized;
 
-        const poly_headers = auth_header.toHttpHeaders();
+        // Build header strings
+        var addr_header_buf: [128]u8 = undefined;
+        const addr_header = std.fmt.bufPrint(&addr_header_buf, "POLY_ADDRESS: {s}", .{auth_header.getAddress()}) catch return Error.ConnectionFailed;
 
-        const uri = std.Uri.parse(url) catch return Error.BadRequest;
+        var sig_header_buf: [256]u8 = undefined;
+        const sig_header = std.fmt.bufPrint(&sig_header_buf, "POLY_SIGNATURE: {s}", .{auth_header.getSignature()}) catch return Error.ConnectionFailed;
 
-        var req = self.http_client.request(.GET, uri, .{
-            .extra_headers = &[_]std.http.Header{
-                .{ .name = "Accept", .value = "application/json" },
-                .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
-                .{ .name = "Content-Type", .value = "application/json" },
-                poly_headers[0],
-                poly_headers[1],
-                poly_headers[2],
-                poly_headers[3],
-            },
-        }) catch |err| {
-            return switch (err) {
-                error.ConnectionRefused => Error.ConnectionRefused,
-                error.ConnectionResetByPeer => Error.ConnectionReset,
-                error.ConnectionTimedOut => Error.Timeout,
-                error.NetworkUnreachable => Error.ConnectionFailed,
-                error.UnknownHostName => Error.DnsResolutionFailed,
-                else => Error.ConnectionFailed,
-            };
+        var ts_header_buf: [64]u8 = undefined;
+        const ts_header = std.fmt.bufPrint(&ts_header_buf, "POLY_TIMESTAMP: {s}", .{auth_header.getTimestamp()}) catch return Error.ConnectionFailed;
+
+        var nonce_header_buf: [64]u8 = undefined;
+        const nonce_header = std.fmt.bufPrint(&nonce_header_buf, "POLY_NONCE: {s}", .{auth_header.getNonce()}) catch return Error.ConnectionFailed;
+
+        // Use curl subprocess with proper argument array
+        const argv: []const []const u8 = &.{
+            "curl",
+            "-s",
+            "-f", // Fail on HTTP errors
+            "-X",
+            "GET",
+            "-H",
+            "Accept: application/json",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            addr_header,
+            "-H",
+            sig_header,
+            "-H",
+            ts_header,
+            "-H",
+            nonce_header,
+            url,
         };
-        defer req.deinit();
 
-        req.sendBodiless() catch return Error.ConnectionFailed;
-        var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
+        var child = std.process.Child.init(argv, self.allocator);
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
 
-        if (errorFromStatus(response.head.status)) |err| {
-            return err;
+        try child.spawn();
+
+        const stdout = child.stdout.?;
+        var read_buffer: [8192]u8 = undefined;
+        var response_body = try std.ArrayList(u8).initCapacity(self.allocator, 1024 * 1024);
+        errdefer response_body.deinit(self.allocator);
+
+        while (true) {
+            const n = stdout.read(&read_buffer) catch {
+                return Error.ConnectionFailed;
+            };
+            if (n == 0) break;
+            try response_body.appendSlice(self.allocator, read_buffer[0..n]);
         }
 
-        return readResponseBody(self.allocator, &response) catch return Error.ConnectionFailed;
+        const result = child.wait() catch {
+            return Error.ConnectionFailed;
+        };
+        if (result != .Exited or result.Exited != 0) {
+            return Error.ConnectionFailed;
+        }
+
+        return try response_body.toOwnedSlice(self.allocator);
     }
 
     // =========================================================================
@@ -1521,7 +1574,8 @@ pub const ClobClient = struct {
             return creds;
         } else |err| {
             // If derive fails (e.g., no existing key), create a new one
-            if (err == Error.NotFound or err == Error.Unauthorized) {
+            // BadRequest (400) is returned when no API key exists for this wallet
+            if (err == Error.NotFound or err == Error.Unauthorized or err == Error.BadRequest) {
                 return self.createApiKey();
             }
             return err;
