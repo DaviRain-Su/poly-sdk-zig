@@ -374,10 +374,10 @@ test "L2Auth.toHttpHeaders" {
     const http_headers = header.toHttpHeaders();
 
     try std.testing.expectEqual(@as(usize, 4), http_headers.len);
-    try std.testing.expectEqualStrings("POLY-API-KEY", http_headers[0].name);
-    try std.testing.expectEqualStrings("POLY-SIGNATURE", http_headers[1].name);
-    try std.testing.expectEqualStrings("POLY-TIMESTAMP", http_headers[2].name);
-    try std.testing.expectEqualStrings("POLY-PASSPHRASE", http_headers[3].name);
+    try std.testing.expectEqualStrings("POLY_API_KEY", http_headers[0].name);
+    try std.testing.expectEqualStrings("POLY_SIGNATURE", http_headers[1].name);
+    try std.testing.expectEqualStrings("POLY_TIMESTAMP", http_headers[2].name);
+    try std.testing.expectEqualStrings("POLY_PASSPHRASE", http_headers[3].name);
 }
 
 test "buildSignatureMessage" {

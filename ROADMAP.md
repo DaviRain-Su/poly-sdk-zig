@@ -447,4 +447,7 @@ try ws.run();
 | 2026-01-01 | v1.0 准备：WebSocket 示例、examples/README.md 更新、ROADMAP.md 状态同步 |
 | 2026-01-01 | v1.0 增强：BTC 对冲套利策略示例 (btc_hedge_strategy.zig) |
 | 2026-01-01 | v1.0 增强：dotenv 模块 (.env 文件支持)、WebSocket 解析器内存安全修复 |
-| 2026-01-01 | v1.0 增强：find_btc_markets 工具、所有示例添加到 build.zig (375 tests) |
+| 2026-01-01 | v1.0 增强：find_btc_markets 工具、所有示例添加到 build.zig |
+| 2026-01-01 | v1.0 修复：API 响应格式修正 (data 包装器)、gzip 解压支持 (curl 后端)、Market 类型字段类型修复 (375 tests) |
+| 2026-01-01 | v1.0 工具：btc_15m_monitor 实时监控工具、自动发现 BTC 15分钟涨跌预测市场 |
+| 2026-01-01 | v1.0 工具：btc_auto_trader 自动交易系统、监控+策略一体化、支持模拟/实盘模式 |

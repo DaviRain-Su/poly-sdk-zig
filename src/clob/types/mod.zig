@@ -25,6 +25,8 @@ pub const Market = market.Market;
 pub const SimplifiedMarket = market.SimplifiedMarket;
 pub const SamplingMarket = market.SamplingMarket;
 pub const MarketsParams = market.MarketsParams;
+pub const MarketsResponse = market.MarketsResponse;
+pub const SimplifiedMarketsResponse = market.SimplifiedMarketsResponse;
 
 // Re-export book types
 pub const OrderSummary = book.OrderSummary;

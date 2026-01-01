@@ -187,6 +187,21 @@ pub fn build(b: *std.Build) void {
             .source = "examples/find_btc_markets.zig",
             .description = "Run BTC market finder (search for BTC prediction markets)",
         },
+        .{
+            .name = "btc_15m_monitor",
+            .source = "examples/btc_15m_monitor.zig",
+            .description = "Run BTC 15m market monitor (real-time market discovery)",
+        },
+        .{
+            .name = "btc_auto_trader",
+            .source = "examples/btc_auto_trader.zig",
+            .description = "Run BTC auto trader (monitor + strategy combined)",
+        },
+        .{
+            .name = "debug_l1_auth",
+            .source = "examples/debug_l1_auth.zig",
+            .description = "Debug L1 authentication",
+        },
     };
 
     // Create a step to build and install all examples

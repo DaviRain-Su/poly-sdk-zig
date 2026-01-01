@@ -38,14 +38,14 @@ pub fn main() !void {
     };
     defer markets.deinit();
 
-    std.debug.print("共找到 {d} 个市场\n\n", .{markets.value.len});
+    std.debug.print("共找到 {d} 个市场\n\n", .{markets.value.data.len});
 
     // 搜索 BTC 相关市场
     var btc_count: usize = 0;
 
     std.debug.print("=== BTC/Bitcoin 相关市场 ===\n\n", .{});
 
-    for (markets.value) |market| {
+    for (markets.value.data) |market| {
         // 跳过没有问题文本的市场
         const question = market.question orelse continue;
 
@@ -77,18 +77,21 @@ pub fn main() !void {
             if (market.tokens) |tokens| {
                 std.debug.print("\nTokens:\n", .{});
                 for (tokens) |token| {
-                    const price_str = token.price orelse "N/A";
                     std.debug.print("  [{s}] ID: {s}\n", .{ token.outcome, token.token_id });
-                    std.debug.print("       价格: {s}\n", .{price_str});
+                    if (token.price) |price| {
+                        std.debug.print("       价格: {d:.4}\n", .{price});
+                    } else {
+                        std.debug.print("       价格: N/A\n", .{});
+                    }
                 }
             }
 
             // 显示交易信息
             if (market.minimum_order_size) |min_size| {
-                std.debug.print("\n最小订单: {s} USDC\n", .{min_size});
+                std.debug.print("\n最小订单: {d:.2} USDC\n", .{min_size});
             }
             if (market.minimum_tick_size) |tick_size| {
-                std.debug.print("最小价格间隔: {s}\n", .{tick_size});
+                std.debug.print("最小价格间隔: {d:.4}\n", .{tick_size});
             }
 
             std.debug.print("\n", .{});

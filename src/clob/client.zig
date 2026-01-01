@@ -287,7 +287,13 @@ pub const ClobClient = struct {
     }
 
     /// Perform GET request and return raw body
+    /// Uses curl subprocess for reliable gzip handling
     fn doGet(self: *ClobClient, path: []const u8) ![]u8 {
+        return self.doGetWithCurl(path);
+    }
+
+    /// Perform GET request using native HTTP client (may have issues with gzip)
+    fn doGetNative(self: *ClobClient, path: []const u8) ![]u8 {
         const url = try self.buildUrl(path);
         defer self.allocator.free(url);
 
@@ -296,6 +302,7 @@ pub const ClobClient = struct {
         var req = self.http_client.request(.GET, uri, .{
             .extra_headers = &.{
                 .{ .name = "Accept", .value = "application/json" },
+                .{ .name = "Accept-Encoding", .value = "identity" }, // Request no compression
                 .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
             },
         }) catch |err| {
@@ -326,6 +333,45 @@ pub const ClobClient = struct {
     fn readResponseBody(allocator: std.mem.Allocator, response: anytype) ![]u8 {
         var reader = response.reader(&.{});
         return reader.allocRemaining(allocator, std.Io.Limit.limited(10 * 1024 * 1024)) catch return error.ReadFailed;
+    }
+
+    /// Perform GET request using curl subprocess (handles gzip automatically)
+    fn doGetWithCurl(self: *ClobClient, path: []const u8) ![]u8 {
+        const url = try self.buildUrl(path);
+        defer self.allocator.free(url);
+
+        // Create argv array with runtime url
+        const argv: []const []const u8 = &.{
+            "curl",
+            "-s",
+            "-f", // Fail on HTTP errors
+            url,
+        };
+
+        var child = std.process.Child.init(argv, self.allocator);
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
+
+        try child.spawn();
+
+        const stdout = child.stdout.?;
+        var read_buffer: [8192]u8 = undefined;
+        var body = try std.ArrayList(u8).initCapacity(self.allocator, 1024 * 1024);
+        errdefer body.deinit(self.allocator);
+
+        while (true) {
+            const n = try stdout.read(&read_buffer);
+            if (n == 0) break;
+            try body.appendSlice(self.allocator, read_buffer[0..n]);
+        }
+
+        const result = try child.wait();
+        if (result != .Exited or result.Exited != 0) {
+            body.deinit(self.allocator);
+            return Error.ConnectionFailed;
+        }
+
+        return try body.toOwnedSlice(self.allocator);
     }
 
     /// Perform authenticated GET request
@@ -737,17 +783,14 @@ pub const ClobClient = struct {
         };
         defer req.deinit();
 
-        // Send body if provided
-        if (body) |b| {
-            req.transfer_encoding = .{ .content_length = b.len };
-            var body_writer = req.sendBodyUnflushed(&.{}) catch return Error.ConnectionFailed;
-            body_writer.writer.writeAll(b) catch return Error.ConnectionFailed;
-            body_writer.end() catch return Error.ConnectionFailed;
-            if (req.connection) |conn| {
-                conn.flush() catch return Error.ConnectionFailed;
-            }
-        } else {
-            req.sendBodiless() catch return Error.ConnectionFailed;
+        // Send body (POST always needs a body, even if empty)
+        const actual_body = body orelse "{}";
+        req.transfer_encoding = .{ .content_length = actual_body.len };
+        var body_writer = req.sendBodyUnflushed(&.{}) catch return Error.ConnectionFailed;
+        body_writer.writer.writeAll(actual_body) catch return Error.ConnectionFailed;
+        body_writer.end() catch return Error.ConnectionFailed;
+        if (req.connection) |conn| {
+            conn.flush() catch return Error.ConnectionFailed;
         }
 
         var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
@@ -839,7 +882,10 @@ pub const ClobClient = struct {
     // =========================================================================
 
     /// Get all markets - GET /markets
-    pub fn getMarkets(self: *ClobClient, params: types.MarketsParams) !std.json.Parsed([]types.Market) {
+    ///
+    /// Returns a paginated list of all markets. Use `next_cursor` from the response
+    /// to fetch the next page.
+    pub fn getMarkets(self: *ClobClient, params: types.MarketsParams) !std.json.Parsed(types.MarketsResponse) {
         var path_buf: [256]u8 = undefined;
         const path = blk: {
             if (params.next_cursor) |cursor| {
@@ -852,18 +898,20 @@ pub const ClobClient = struct {
         const body = try self.doGet(path);
         defer self.allocator.free(body);
 
-        return std.json.parseFromSlice([]types.Market, self.allocator, body, .{
+        return std.json.parseFromSlice(types.MarketsResponse, self.allocator, body, .{
             .ignore_unknown_fields = true,
             .allocate = .alloc_always,
         }) catch Error.InvalidJson;
     }
 
     /// Get simplified markets - GET /simplified-markets
-    pub fn getSimplifiedMarkets(self: *ClobClient) !std.json.Parsed([]types.SimplifiedMarket) {
+    ///
+    /// Returns a paginated list of simplified markets (fewer fields than full markets).
+    pub fn getSimplifiedMarkets(self: *ClobClient) !std.json.Parsed(types.SimplifiedMarketsResponse) {
         const body = try self.doGet(Endpoints.SIMPLIFIED_MARKETS);
         defer self.allocator.free(body);
 
-        return std.json.parseFromSlice([]types.SimplifiedMarket, self.allocator, body, .{
+        return std.json.parseFromSlice(types.SimplifiedMarketsResponse, self.allocator, body, .{
             .ignore_unknown_fields = true,
             .allocate = .alloc_always,
         }) catch Error.InvalidJson;
@@ -873,11 +921,11 @@ pub const ClobClient = struct {
     ///
     /// Returns a random sample of markets. Useful for initial data loading
     /// or when you don't need the full market list.
-    pub fn getSamplingMarkets(self: *ClobClient) !std.json.Parsed([]types.Market) {
+    pub fn getSamplingMarkets(self: *ClobClient) !std.json.Parsed(types.MarketsResponse) {
         const body = try self.doGet(Endpoints.SAMPLING_MARKETS);
         defer self.allocator.free(body);
 
-        return std.json.parseFromSlice([]types.Market, self.allocator, body, .{
+        return std.json.parseFromSlice(types.MarketsResponse, self.allocator, body, .{
             .ignore_unknown_fields = true,
             .allocate = .alloc_always,
         }) catch Error.InvalidJson;
@@ -886,12 +934,12 @@ pub const ClobClient = struct {
     /// Get sampling simplified markets - GET /sampling-simplified-markets
     ///
     /// Returns a random sample of simplified markets.
-    pub fn getSamplingSimplifiedMarkets(self: *ClobClient) !std.json.Parsed([]types.SimplifiedMarket) {
+    pub fn getSamplingSimplifiedMarkets(self: *ClobClient) !std.json.Parsed(types.SimplifiedMarketsResponse) {
         const path = "/sampling-simplified-markets";
         const body = try self.doGet(path);
         defer self.allocator.free(body);
 
-        return std.json.parseFromSlice([]types.SimplifiedMarket, self.allocator, body, .{
+        return std.json.parseFromSlice(types.SimplifiedMarketsResponse, self.allocator, body, .{
             .ignore_unknown_fields = true,
             .allocate = .alloc_always,
         }) catch Error.InvalidJson;

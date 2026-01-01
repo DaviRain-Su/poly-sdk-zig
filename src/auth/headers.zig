@@ -29,10 +29,10 @@ pub const L1PolyHeader = struct {
     const Self = @This();
 
     /// Header 名称常量
-    pub const HEADER_ADDRESS = "POLY-ADDRESS";
-    pub const HEADER_SIGNATURE = "POLY-SIGNATURE";
-    pub const HEADER_TIMESTAMP = "POLY-TIMESTAMP";
-    pub const HEADER_NONCE = "POLY-NONCE";
+    pub const HEADER_ADDRESS = "POLY_ADDRESS";
+    pub const HEADER_SIGNATURE = "POLY_SIGNATURE";
+    pub const HEADER_TIMESTAMP = "POLY_TIMESTAMP";
+    pub const HEADER_NONCE = "POLY_NONCE";
 
     /// 获取地址字符串
     pub fn getAddress(self: *const Self) []const u8 {
@@ -88,10 +88,10 @@ pub const L2PolyHeader = struct {
     const Self = @This();
 
     /// Header 名称常量
-    pub const HEADER_API_KEY = "POLY-API-KEY";
-    pub const HEADER_SIGNATURE = "POLY-SIGNATURE";
-    pub const HEADER_TIMESTAMP = "POLY-TIMESTAMP";
-    pub const HEADER_PASSPHRASE = "POLY-PASSPHRASE";
+    pub const HEADER_API_KEY = "POLY_API_KEY";
+    pub const HEADER_SIGNATURE = "POLY_SIGNATURE";
+    pub const HEADER_TIMESTAMP = "POLY_TIMESTAMP";
+    pub const HEADER_PASSPHRASE = "POLY_PASSPHRASE";
 
     /// 获取 API Key
     pub fn getApiKey(self: *const Self) []const u8 {
@@ -185,10 +185,10 @@ test "L1PolyHeader.toHttpHeaders" {
     const headers = header.toHttpHeaders();
 
     try std.testing.expectEqual(@as(usize, 4), headers.len);
-    try std.testing.expectEqualStrings("POLY-ADDRESS", headers[0].name);
-    try std.testing.expectEqualStrings("POLY-SIGNATURE", headers[1].name);
-    try std.testing.expectEqualStrings("POLY-TIMESTAMP", headers[2].name);
-    try std.testing.expectEqualStrings("POLY-NONCE", headers[3].name);
+    try std.testing.expectEqualStrings("POLY_ADDRESS", headers[0].name);
+    try std.testing.expectEqualStrings("POLY_SIGNATURE", headers[1].name);
+    try std.testing.expectEqualStrings("POLY_TIMESTAMP", headers[2].name);
+    try std.testing.expectEqualStrings("POLY_NONCE", headers[3].name);
 }
 
 test "L2PolyHeader creation" {
@@ -233,18 +233,18 @@ test "L2PolyHeader.toHttpHeaders" {
     const headers = header.toHttpHeaders();
 
     try std.testing.expectEqual(@as(usize, 4), headers.len);
-    try std.testing.expectEqualStrings("POLY-API-KEY", headers[0].name);
-    try std.testing.expectEqualStrings("POLY-SIGNATURE", headers[1].name);
-    try std.testing.expectEqualStrings("POLY-TIMESTAMP", headers[2].name);
-    try std.testing.expectEqualStrings("POLY-PASSPHRASE", headers[3].name);
+    try std.testing.expectEqualStrings("POLY_API_KEY", headers[0].name);
+    try std.testing.expectEqualStrings("POLY_SIGNATURE", headers[1].name);
+    try std.testing.expectEqualStrings("POLY_TIMESTAMP", headers[2].name);
+    try std.testing.expectEqualStrings("POLY_PASSPHRASE", headers[3].name);
 }
 
 test "Header name constants" {
-    try std.testing.expectEqualStrings("POLY-ADDRESS", L1PolyHeader.HEADER_ADDRESS);
-    try std.testing.expectEqualStrings("POLY-SIGNATURE", L1PolyHeader.HEADER_SIGNATURE);
-    try std.testing.expectEqualStrings("POLY-TIMESTAMP", L1PolyHeader.HEADER_TIMESTAMP);
-    try std.testing.expectEqualStrings("POLY-NONCE", L1PolyHeader.HEADER_NONCE);
+    try std.testing.expectEqualStrings("POLY_ADDRESS", L1PolyHeader.HEADER_ADDRESS);
+    try std.testing.expectEqualStrings("POLY_SIGNATURE", L1PolyHeader.HEADER_SIGNATURE);
+    try std.testing.expectEqualStrings("POLY_TIMESTAMP", L1PolyHeader.HEADER_TIMESTAMP);
+    try std.testing.expectEqualStrings("POLY_NONCE", L1PolyHeader.HEADER_NONCE);
 
-    try std.testing.expectEqualStrings("POLY-API-KEY", L2PolyHeader.HEADER_API_KEY);
-    try std.testing.expectEqualStrings("POLY-PASSPHRASE", L2PolyHeader.HEADER_PASSPHRASE);
+    try std.testing.expectEqualStrings("POLY_API_KEY", L2PolyHeader.HEADER_API_KEY);
+    try std.testing.expectEqualStrings("POLY_PASSPHRASE", L2PolyHeader.HEADER_PASSPHRASE);
 }

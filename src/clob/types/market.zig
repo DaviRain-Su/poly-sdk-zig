@@ -8,10 +8,18 @@ pub const Token = struct {
     token_id: []const u8,
     /// Outcome name (e.g., "Yes", "No")
     outcome: []const u8,
-    /// Current price (as string, parse with Decimal)
-    price: ?[]const u8 = null,
+    /// Current price (0.0 to 1.0)
+    price: ?f64 = null,
     /// Winner status
     winner: ?bool = null,
+};
+
+/// Rewards info in a market
+pub const MarketRewards = struct {
+    /// Rates can be null, an array, or other JSON types - use json.Value for flexibility
+    rates: ?std.json.Value = null,
+    min_size: ?f64 = null,
+    max_spread: ?f64 = null,
 };
 
 /// Market information
@@ -38,12 +46,10 @@ pub const Market = struct {
     accepting_orders: ?bool = null,
     /// Accept order timestamp
     accepting_order_timestamp: ?[]const u8 = null,
-    /// Minimum order size
-    minimum_order_size: ?[]const u8 = null,
-    /// Minimum tick size
-    minimum_tick_size: ?[]const u8 = null,
-    /// Condition ID
-    condition_id_field: ?[]const u8 = null,
+    /// Minimum order size (numeric)
+    minimum_order_size: ?f64 = null,
+    /// Minimum tick size (numeric)
+    minimum_tick_size: ?f64 = null,
     /// Question ID
     question_id: ?[]const u8 = null,
     /// Is market funded
@@ -54,10 +60,10 @@ pub const Market = struct {
     market_slug: ?[]const u8 = null,
     /// Event slug
     event_slug: ?[]const u8 = null,
-    /// Maker base fee
-    maker_base_fee: ?[]const u8 = null,
-    /// Taker base fee
-    taker_base_fee: ?[]const u8 = null,
+    /// Maker base fee (numeric)
+    maker_base_fee: ?f64 = null,
+    /// Taker base fee (numeric)
+    taker_base_fee: ?f64 = null,
     /// Notifications enabled
     notifications_enabled: ?bool = null,
     /// Neg risk
@@ -70,16 +76,22 @@ pub const Market = struct {
     icon: ?[]const u8 = null,
     /// Image URL
     image: ?[]const u8 = null,
-    /// Rewards min size
-    rewards_min_size: ?[]const u8 = null,
-    /// Rewards max spread
-    rewards_max_spread: ?[]const u8 = null,
-    /// Spread
-    spread: ?[]const u8 = null,
-    /// Order price min tick size
-    order_price_min_tick_size: ?[]const u8 = null,
+    /// Spread (numeric)
+    spread: ?f64 = null,
+    /// Order price min tick size (numeric)
+    order_price_min_tick_size: ?f64 = null,
     /// Tags
     tags: ?[][]const u8 = null,
+    /// Enable order book
+    enable_order_book: ?bool = null,
+    /// Seconds delay
+    seconds_delay: ?i64 = null,
+    /// FPMM address
+    fpmm: ?[]const u8 = null,
+    /// Rewards info
+    rewards: ?MarketRewards = null,
+    /// Is 50/50 outcome
+    is_50_50_outcome: ?bool = null,
 };
 
 /// Simplified market (less fields)
@@ -103,6 +115,30 @@ pub const MarketsParams = struct {
     next_cursor: ?[]const u8 = null,
 };
 
+/// API response wrapper for markets list
+pub const MarketsResponse = struct {
+    /// List of markets
+    data: []Market,
+    /// Cursor for pagination
+    next_cursor: ?[]const u8 = null,
+    /// Limit per page
+    limit: ?u32 = null,
+    /// Total count
+    count: ?u32 = null,
+};
+
+/// API response wrapper for simplified markets list
+pub const SimplifiedMarketsResponse = struct {
+    /// List of simplified markets
+    data: []SimplifiedMarket,
+    /// Cursor for pagination
+    next_cursor: ?[]const u8 = null,
+    /// Limit per page
+    limit: ?u32 = null,
+    /// Total count
+    count: ?u32 = null,
+};
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -111,10 +147,11 @@ test "Token struct" {
     const token = Token{
         .token_id = "12345",
         .outcome = "Yes",
-        .price = "0.65",
+        .price = 0.65,
     };
     try std.testing.expectEqualStrings("12345", token.token_id);
     try std.testing.expectEqualStrings("Yes", token.outcome);
+    try std.testing.expectApproxEqAbs(0.65, token.price.?, 0.001);
 }
 
 test "Market struct" {

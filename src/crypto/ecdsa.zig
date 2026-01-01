@@ -212,18 +212,23 @@ pub const PrivateKey = struct {
     }
 
     /// 计算恢复 ID
+    ///
+    /// 尝试使用 recovery_id = 0 和 1 恢复公钥，找到与原始公钥匹配的那个。
     fn computeRecoveryId(self: *const Self, message_hash: *const [32]u8, sig: *const EcdsaImpl.Signature) u8 {
         const pub_key = self.keypair.public_key;
+        const original_bytes = pub_key.toUncompressedSec1();
 
         // 尝试恢复 ID 0 和 1
         for ([_]u8{ 0, 1 }) |recovery_id| {
-            if (recoverPublicKey(message_hash, sig, recovery_id)) |recovered| {
+            if (recoverPublicKeyImpl(message_hash, sig, recovery_id)) |recovered| {
                 // 比较恢复的公钥与原始公钥
                 const recovered_bytes = recovered.toUncompressedSec1();
-                const original_bytes = pub_key.toUncompressedSec1();
                 if (std.mem.eql(u8, &recovered_bytes, &original_bytes)) {
                     return recovery_id;
                 }
+            } else |_| {
+                // 恢复失败，尝试下一个 recovery_id
+                continue;
             }
         }
         // 默认返回 0（不应该发生）
@@ -308,19 +313,106 @@ pub const PublicKey = struct {
     }
 };
 
-/// 从签名和消息哈希恢复公钥
+/// 从签名和消息哈希恢复公钥（公开版本，返回 optional）
 pub fn recoverPublicKey(
     message_hash: *const [32]u8,
     signature: *const EcdsaImpl.Signature,
     recovery_id: u8,
 ) ?EcdsaImpl.PublicKey {
-    _ = message_hash;
-    _ = signature;
-    _ = recovery_id;
-    // TODO: 实现公钥恢复
-    // 这需要更底层的椭圆曲线操作
-    // 暂时返回 null，依赖计算恢复 ID 时的穷举
-    return null;
+    return recoverPublicKeyImpl(message_hash, signature, recovery_id) catch null;
+}
+
+/// 从签名和消息哈希恢复公钥
+///
+/// 实现 ECDSA 公钥恢复算法：
+/// 1. 从 r 值和 recovery_id 恢复点 R
+/// 2. 计算 u1 = -z * r^-1 mod n
+/// 3. 计算 u2 = s * r^-1 mod n
+/// 4. 公钥 Q = u1 * G + u2 * R
+fn recoverPublicKeyImpl(
+    message_hash: *const [32]u8,
+    signature: *const EcdsaImpl.Signature,
+    recovery_id: u8,
+) !EcdsaImpl.PublicKey {
+    const Curve = Secp256k1;
+    const Scalar = Curve.scalar.Scalar;
+
+    // 只支持 recovery_id 0 和 1
+    if (recovery_id > 1) return error.InvalidRecoveryId;
+
+    // 解析 r 和 s 为标量
+    const r_scalar = Scalar.fromBytes(signature.r, .big) catch return error.InvalidSignature;
+    const s_scalar = Scalar.fromBytes(signature.s, .big) catch return error.InvalidSignature;
+
+    if (r_scalar.isZero() or s_scalar.isZero()) return error.InvalidSignature;
+
+    // 解析消息哈希为标量
+    const z = Scalar.fromBytes(message_hash.*, .big) catch return error.InvalidMessageHash;
+
+    // 从 r 值恢复点 R
+    // R.x = r, R.y 根据 recovery_id 的奇偶性确定
+    const r_fe = Curve.Fe.fromBytes(signature.r, .big) catch return error.InvalidSignature;
+
+    // 尝试根据 x 坐标找到曲线上的点
+    // y^2 = x^3 + 7 (secp256k1 曲线方程)
+    const R = recoverPointFromX(r_fe, recovery_id) catch return error.PointNotOnCurve;
+
+    // 计算 r^-1 mod n
+    const r_inv = r_scalar.invert();
+
+    // 计算 coeff1 = -z * r^-1 mod n
+    const neg_z = z.neg();
+    const coeff1 = neg_z.mul(r_inv);
+
+    // 计算 coeff2 = s * r^-1 mod n
+    const coeff2 = s_scalar.mul(r_inv);
+
+    // Q = coeff1 * G + coeff2 * R
+    const G = Curve.basePoint;
+    const coeff1_bytes = coeff1.toBytes(.big);
+    const coeff2_bytes = coeff2.toBytes(.big);
+
+    // coeff1 * G
+    const c1G = G.mul(coeff1_bytes, .big) catch return error.InvalidPoint;
+
+    // coeff2 * R
+    const c2R = R.mul(coeff2_bytes, .big) catch return error.InvalidPoint;
+
+    // Q = c1G + c2R
+    const Q = c1G.add(c2R);
+
+    // 将点转换为未压缩的 SEC1 格式，然后创建 PublicKey
+    const Q_affine = Q.affineCoordinates();
+    var sec1: [65]u8 = undefined;
+    sec1[0] = 0x04; // 未压缩格式前缀
+    @memcpy(sec1[1..33], &Q_affine.x.toBytes(.big));
+    @memcpy(sec1[33..65], &Q_affine.y.toBytes(.big));
+
+    return EcdsaImpl.PublicKey.fromSec1(&sec1) catch return error.InvalidPublicKey;
+}
+
+/// 从 x 坐标恢复曲线上的点
+fn recoverPointFromX(x: Secp256k1.Fe, recovery_id: u8) !Secp256k1 {
+    const Curve = Secp256k1;
+    const Fe = Curve.Fe;
+
+    // y^2 = x^3 + 7
+    const x_cubed = x.mul(x).mul(x);
+    const b = Fe.fromInt(7) catch unreachable;
+    const y_squared = x_cubed.add(b);
+
+    // 计算 y = sqrt(y^2)
+    const y = y_squared.sqrt() catch return error.PointNotOnCurve;
+
+    // 根据 recovery_id 选择 y 的正负
+    // recovery_id 的最低位表示 y 的奇偶性
+    const y_is_odd = y.isOdd();
+    const should_be_odd = (recovery_id & 1) == 1;
+
+    const final_y = if (y_is_odd != should_be_odd) y.neg() else y;
+
+    // 从仿射坐标创建点
+    return Curve.fromAffineCoordinates(.{ .x = x, .y = final_y }) catch return error.PointNotOnCurve;
 }
 
 fn hexCharToNibble(c: u8) ?u4 {
