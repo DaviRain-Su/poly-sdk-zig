@@ -333,7 +333,7 @@ const OrderBookMonitor = struct {
         const current_slot = @divFloor(now, interval) * interval;
         const next_slot = current_slot + interval;
 
-        // 优先选择正在进行的市场
+        // 优先选择正在进行的市场，然后是下一个市场
         const slots = [_]i64{ current_slot, next_slot };
 
         for (slots) |slot| {
@@ -347,6 +347,7 @@ const OrderBookMonitor = struct {
 
                 // 检查市场是否还有时间
                 if (remaining <= 0) {
+                    std.debug.print("[{d}] 市场 {s} 已结束 (remaining={d})\n", .{ now, slug, remaining });
                     continue;
                 }
 
@@ -357,11 +358,13 @@ const OrderBookMonitor = struct {
                     @mod(remaining, 60),
                 });
                 return market_info;
-            } else |_| {
+            } else |err| {
+                std.debug.print("[{d}] 查询市场 {s} 失败: {}\n", .{ now, slug, err });
                 continue;
             }
         }
 
+        std.debug.print("[{d}] 未找到活跃市场，current_slot={d}, next_slot={d}\n", .{ now, current_slot, next_slot });
         return null;
     }
 
@@ -499,8 +502,10 @@ const OrderBookMonitor = struct {
                 std.debug.print("  预计等待: {d} 分 {d} 秒\n", .{ time_until.mins, time_until.secs });
                 std.debug.print("\n", .{});
                 std.debug.print("  提示: 市场创建后会自动开始监控订单簿\n", .{});
+                std.debug.print("  重试间隔: 5 秒\n", .{});
                 std.debug.print("\n", .{});
-                std.Thread.sleep(3 * std.time.ns_per_s);
+                // 更频繁地重试，以便及时发现新市场
+                std.Thread.sleep(5 * std.time.ns_per_s);
             }
         }
     }
@@ -516,7 +521,13 @@ const OrderBookMonitor = struct {
             const remaining = market.end_timestamp - now;
 
             if (remaining <= 0) {
-                std.debug.print("\n市场已结束，寻找下一个市场...\n", .{});
+                std.debug.print("\n", .{});
+                std.debug.print("═══════════════════════════════════════════════════════════════\n", .{});
+                std.debug.print("  ⏰ 市场 {s} 已结束\n", .{market.getSlug()});
+                std.debug.print("  🔄 正在寻找下一个活跃市场...\n", .{});
+                std.debug.print("═══════════════════════════════════════════════════════════════\n", .{});
+                // 短暂等待，让新市场有时间创建
+                std.Thread.sleep(2 * std.time.ns_per_s);
                 break;
             }
 
