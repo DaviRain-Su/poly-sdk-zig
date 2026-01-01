@@ -592,6 +592,26 @@ const WsTrader = struct {
         // 检查仓位限制
         if (self.position.totalCost() >= self.config.max_position) return;
 
+        // ⚠️ 检查价差是否过大 - 市场流动性不足时不交易
+        const up_spread = if (g_live_book.up_best_ask > g_live_book.up_best_bid)
+            g_live_book.up_best_ask - g_live_book.up_best_bid
+        else
+            0.0;
+        const down_spread = if (g_live_book.down_best_ask > g_live_book.down_best_bid)
+            g_live_book.down_best_ask - g_live_book.down_best_bid
+        else
+            0.0;
+
+        // 价差超过 30% 时不交易
+        const max_spread: f64 = 0.30;
+        if (up_spread > max_spread or down_spread > max_spread) {
+            // 只在首次检测到时记录
+            if (g_stats.signals_generated == 0 or g_live_book.update_count % 10 == 0) {
+                log("  ⚠️ 价差过大 (UP: {d:.2}, DOWN: {d:.2})，暂停交易", .{ up_spread, down_spread });
+            }
+            return;
+        }
+
         const up_prob = g_live_book.up_mid_price;
         const prob_sum = g_live_book.probabilitySum();
 

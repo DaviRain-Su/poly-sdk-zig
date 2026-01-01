@@ -529,6 +529,17 @@ const SmartTrader = struct {
     /// 生成交易信号
     fn generateSignals(self: *Self, snapshot: MarketSnapshot) [4]?TradeSignal {
         var signals: [4]?TradeSignal = [_]?TradeSignal{null} ** 4;
+
+        // ⚠️ 检查价差是否过大 - 市场流动性不足时不交易
+        const up_spread = snapshot.up_analysis.real_spread;
+        const down_spread = snapshot.down_analysis.real_spread;
+        const max_spread: f64 = 0.30; // 最大允许价差 30%
+
+        if (up_spread > max_spread or down_spread > max_spread) {
+            log("  ⚠️ 价差过大 (UP: {d:.2}, DOWN: {d:.2})，暂停交易", .{ up_spread, down_spread });
+            return signals; // 返回空信号
+        }
+
         var signal_idx: usize = 0;
 
         // 计算动量和波动率

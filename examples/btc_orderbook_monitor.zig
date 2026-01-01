@@ -255,10 +255,25 @@ const OrderBookDisplay = struct {
         std.debug.print("│  中间价: {d:.4}  ({d:.1}%)            │  中间价: {d:.4}  ({d:.1}%)            │\n", .{ up_mid, up_mid * 100, down_mid, down_mid * 100 });
         std.debug.print("└─────────────────────────────────────┴─────────────────────────────────────┘\n", .{});
 
+        // 市场健康状态检查
+        const up_spread = if (up_best_ask > up_best_bid) up_best_ask - up_best_bid else 0.0;
+        const down_spread = if (down_best_ask > down_best_bid) down_best_ask - down_best_bid else 0.0;
+
+        std.debug.print("\n", .{});
+
+        // 检查价差是否过大
+        if (up_spread > 0.5 or down_spread > 0.5) {
+            std.debug.print("  ⚠️  警告: 价差过大! UP价差: {d:.2}, DOWN价差: {d:.2}\n", .{ up_spread, down_spread });
+            std.debug.print("  ⚠️  市场流动性不足，不建议交易\n", .{});
+        } else if (up_spread > 0.2 or down_spread > 0.2) {
+            std.debug.print("  ⚡ 注意: 价差较大 (UP: {d:.2}, DOWN: {d:.2})，交易需谨慎\n", .{ up_spread, down_spread });
+        } else {
+            std.debug.print("  ✅ 市场健康: 价差正常 (UP: {d:.4}, DOWN: {d:.4})\n", .{ up_spread, down_spread });
+        }
+
         // 套利机会检测
         const total_mid = up_mid + down_mid;
         if (total_mid > 0) {
-            std.debug.print("\n", .{});
             if (total_mid < 0.98) {
                 std.debug.print("  💰 套利机会! UP + DOWN = {d:.4} < 1.00 (买入两边可套利)\n", .{total_mid});
             } else if (total_mid > 1.02) {
