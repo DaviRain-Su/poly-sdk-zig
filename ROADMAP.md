@@ -453,3 +453,4 @@ try ws.run();
 | 2026-01-01 | v1.0 工具：btc_auto_trader 自动交易系统、监控+策略一体化、支持模拟/实盘模式 |
 | 2026-01-01 | v1.0 工具：btc_smart_trader 智能交易系统 v2、真实价差分析、多策略模式 (做市/套利/趋势/混合) |
 | 2026-01-01 | v1.0 工具：btc_ws_trader WebSocket 实时交易、TLS 支持、REST API 自动降级 (371 tests) |
+| 2026-01-01 | v1.0 完成：流动性奖励 API (6 端点)、Gamma API (3 端点)，100% API 覆盖 (385 tests) |

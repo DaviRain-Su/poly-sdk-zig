@@ -142,7 +142,18 @@ pub const Endpoints = struct {
     pub const PRICES = "/prices";
     pub const SPREADS = "/spreads";
     pub const LAST_TRADES_PRICES = "/last-trades-prices";
+
+    // Liquidity Rewards endpoints
+    pub const REWARDS_USER = "/rewards/user";
+    pub const REWARDS_USER_TOTAL = "/rewards/user/total";
+    pub const REWARDS_USER_PERCENTAGES = "/rewards/user/percentages";
+    pub const REWARDS_MARKETS_CURRENT = "/rewards/markets/current";
+    pub const REWARDS_MARKETS = "/rewards/markets";
+    pub const REWARDS_USER_MARKETS = "/rewards/user/markets";
 };
+
+/// Gamma API Base URL
+pub const GAMMA_API_BASE_URL = "https://gamma-api.polymarket.com";
 
 /// Default base URLs
 pub const BASE_URL_MAINNET = "https://clob.polymarket.com";
@@ -2314,6 +2325,251 @@ pub const ClobClient = struct {
 
         return parsed.value;
     }
+
+    // ========================================================================
+    // Liquidity Rewards API (流动性奖励)
+    // ========================================================================
+
+    /// Get user earnings for a specific day
+    /// Endpoint: GET /rewards/user
+    pub fn getUserEarnings(self: *ClobClient, params: types.UserEarningsParams) !std.json.Parsed([]types.UserEarning) {
+        var path_buf: [512]u8 = undefined;
+        var stream = std.io.fixedBufferStream(&path_buf);
+        var writer = stream.writer();
+
+        try writer.writeAll(Endpoints.REWARDS_USER);
+
+        var has_param = false;
+        if (params.date) |date| {
+            try writer.print("?date={s}", .{date});
+            has_param = true;
+        }
+        if (params.condition_id) |cid| {
+            if (has_param) {
+                try writer.print("&condition_id={s}", .{cid});
+            } else {
+                try writer.print("?condition_id={s}", .{cid});
+            }
+        }
+
+        const path = path_buf[0..stream.pos];
+        const response_body = try self.doGet(path);
+
+        const parsed = std.json.parseFromSlice(
+            []types.UserEarning,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
+        ) catch {
+            self.allocator.free(response_body);
+            return Error.InvalidJson;
+        };
+
+        self.allocator.free(response_body);
+        return parsed;
+    }
+
+    /// Get total user earnings for a specific day
+    /// Endpoint: GET /rewards/user/total
+    pub fn getUserTotalEarnings(self: *ClobClient, date: ?[]const u8) !types.UserTotalEarningsResponse {
+        var path_buf: [256]u8 = undefined;
+
+        const path = if (date) |d|
+            std.fmt.bufPrint(&path_buf, "{s}?date={s}", .{ Endpoints.REWARDS_USER_TOTAL, d }) catch return Error.BadRequest
+        else
+            Endpoints.REWARDS_USER_TOTAL;
+
+        const response_body = try self.doGet(path);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.UserTotalEarningsResponse,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    /// Get reward percentages
+    /// Endpoint: GET /rewards/user/percentages
+    pub fn getRewardPercentages(self: *ClobClient) !types.RewardPercentagesResponse {
+        const response_body = try self.doGet(Endpoints.REWARDS_USER_PERCENTAGES);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.RewardPercentagesResponse,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    /// Get current market rewards
+    /// Endpoint: GET /rewards/markets/current
+    pub fn getCurrentRewards(self: *ClobClient) !std.json.Parsed([]types.MarketReward) {
+        const response_body = try self.doGet(Endpoints.REWARDS_MARKETS_CURRENT);
+
+        const parsed = std.json.parseFromSlice(
+            []types.MarketReward,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
+        ) catch {
+            self.allocator.free(response_body);
+            return Error.InvalidJson;
+        };
+
+        self.allocator.free(response_body);
+        return parsed;
+    }
+
+    /// Get raw rewards for a specific market
+    /// Endpoint: GET /rewards/markets/{conditionId}
+    pub fn getRawRewardsForMarket(self: *ClobClient, condition_id: []const u8) !types.RawMarketRewardResponse {
+        var path_buf: [256]u8 = undefined;
+        const path = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ Endpoints.REWARDS_MARKETS, condition_id }) catch return Error.BadRequest;
+
+        const response_body = try self.doGet(path);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.RawMarketRewardResponse,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    /// Get user earnings and markets config
+    /// Endpoint: GET /rewards/user/markets
+    pub fn getUserEarningsAndMarketsConfig(self: *ClobClient) !types.UserEarningsAndMarketsConfigResponse {
+        const response_body = try self.doGet(Endpoints.REWARDS_USER_MARKETS);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.UserEarningsAndMarketsConfigResponse,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    // ========================================================================
+    // Gamma API (市场元数据)
+    // ========================================================================
+
+    /// Get markets from Gamma API
+    /// Endpoint: GET https://gamma-api.polymarket.com/markets
+    pub fn getGammaMarkets(self: *ClobClient, params: types.GammaMarketsParams) !std.json.Parsed([]types.GammaMarket) {
+        var query_buf: [512]u8 = undefined;
+        const query = try params.toQueryString(&query_buf);
+
+        var url_buf: [1024]u8 = undefined;
+        const url = if (query.len > 0)
+            std.fmt.bufPrint(&url_buf, "{s}/markets?{s}", .{ GAMMA_API_BASE_URL, query }) catch return Error.BadRequest
+        else
+            std.fmt.bufPrint(&url_buf, "{s}/markets", .{GAMMA_API_BASE_URL}) catch return Error.BadRequest;
+
+        const response_body = try self.doExternalGet(url);
+
+        const parsed = std.json.parseFromSlice(
+            []types.GammaMarket,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
+        ) catch {
+            self.allocator.free(response_body);
+            return Error.InvalidJson;
+        };
+
+        self.allocator.free(response_body);
+        return parsed;
+    }
+
+    /// Get a specific market from Gamma API
+    /// Endpoint: GET https://gamma-api.polymarket.com/markets/{id}
+    pub fn getGammaMarket(self: *ClobClient, market_id: []const u8) !types.GammaMarket {
+        var url_buf: [512]u8 = undefined;
+        const url = std.fmt.bufPrint(&url_buf, "{s}/markets/{s}", .{ GAMMA_API_BASE_URL, market_id }) catch return Error.BadRequest;
+
+        const response_body = try self.doExternalGet(url);
+        defer self.allocator.free(response_body);
+
+        const parsed = std.json.parseFromSlice(
+            types.GammaMarket,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true },
+        ) catch return Error.InvalidJson;
+        defer parsed.deinit();
+
+        return parsed.value;
+    }
+
+    /// Get events from Gamma API
+    /// Endpoint: GET https://gamma-api.polymarket.com/events
+    pub fn getGammaEvents(self: *ClobClient, params: types.GammaEventsParams) !std.json.Parsed([]types.GammaEvent) {
+        var query_buf: [512]u8 = undefined;
+        const query = try params.toQueryString(&query_buf);
+
+        var url_buf: [1024]u8 = undefined;
+        const url = if (query.len > 0)
+            std.fmt.bufPrint(&url_buf, "{s}/events?{s}", .{ GAMMA_API_BASE_URL, query }) catch return Error.BadRequest
+        else
+            std.fmt.bufPrint(&url_buf, "{s}/events", .{GAMMA_API_BASE_URL}) catch return Error.BadRequest;
+
+        const response_body = try self.doExternalGet(url);
+
+        const parsed = std.json.parseFromSlice(
+            []types.GammaEvent,
+            self.allocator,
+            response_body,
+            .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
+        ) catch {
+            self.allocator.free(response_body);
+            return Error.InvalidJson;
+        };
+
+        self.allocator.free(response_body);
+        return parsed;
+    }
+
+    /// Internal helper for external GET requests (Gamma API)
+    fn doExternalGet(self: *ClobClient, url: []const u8) ![]u8 {
+        // Use curl for external requests
+        const result = std.process.Child.run(.{
+            .allocator = self.allocator,
+            .argv = &.{
+                "curl",
+                "-s",
+                "-H",
+                "Accept: application/json",
+                "--compressed",
+                url,
+            },
+        }) catch return Error.ConnectionFailed;
+
+        defer self.allocator.free(result.stderr);
+
+        if (result.term.Exited != 0) {
+            self.allocator.free(result.stdout);
+            return Error.ConnectionFailed;
+        }
+
+        return result.stdout;
+    }
 };
 
 // ============================================================================
@@ -2474,4 +2730,17 @@ test "ClobClient.setWallet and setApiCreds" {
     defer creds.deinit();
     client.setApiCreds(&creds);
     try std.testing.expect(client.hasAuth());
+}
+
+test "Rewards endpoints constants" {
+    try std.testing.expectEqualStrings("/rewards/user", Endpoints.REWARDS_USER);
+    try std.testing.expectEqualStrings("/rewards/user/total", Endpoints.REWARDS_USER_TOTAL);
+    try std.testing.expectEqualStrings("/rewards/user/percentages", Endpoints.REWARDS_USER_PERCENTAGES);
+    try std.testing.expectEqualStrings("/rewards/markets/current", Endpoints.REWARDS_MARKETS_CURRENT);
+    try std.testing.expectEqualStrings("/rewards/markets", Endpoints.REWARDS_MARKETS);
+    try std.testing.expectEqualStrings("/rewards/user/markets", Endpoints.REWARDS_USER_MARKETS);
+}
+
+test "Gamma API constants" {
+    try std.testing.expectEqualStrings("https://gamma-api.polymarket.com", GAMMA_API_BASE_URL);
 }

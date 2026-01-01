@@ -323,12 +323,12 @@ interface AcceptQuoteParams {
 
 | 端点 | 方法 | TypeScript | Zig ROADMAP |
 |------|------|------------|-------------|
-| `/rewards/user` | GET | `getEarningsForUserForDay()` | v0.5 ⏳ |
-| `/rewards/user/total` | GET | `getTotalEarningsForUserForDay()` | v0.5 ⏳ |
-| `/rewards/user/percentages` | GET | `getRewardPercentages()` | v0.5 ⏳ |
-| `/rewards/markets/current` | GET | `getCurrentRewards()` | v0.5 ⏳ |
-| `/rewards/markets/{conditionId}` | GET | `getRawRewardsForMarket()` | v0.5 ⏳ |
-| `/rewards/user/markets` | GET | `getUserEarningsAndMarketsConfig()` | v0.5 ⏳ |
+| `/rewards/user` | GET | `getUserEarnings()` | v0.5 ✅ |
+| `/rewards/user/total` | GET | `getUserTotalEarnings()` | v0.5 ✅ |
+| `/rewards/user/percentages` | GET | `getRewardPercentages()` | v0.5 ✅ |
+| `/rewards/markets/current` | GET | `getCurrentRewards()` | v0.5 ✅ |
+| `/rewards/markets/{conditionId}` | GET | `getRawRewardsForMarket()` | v0.5 ✅ |
+| `/rewards/user/markets` | GET | `getUserEarningsAndMarketsConfig()` | v0.5 ✅ |
 
 ### 奖励类型定义
 
@@ -375,9 +375,9 @@ Gamma API 是 Polymarket 的市场元数据 API，与 CLOB API 分离。
 
 | 端点 | 方法 | 功能 | Zig ROADMAP |
 |------|------|------|-------------|
-| `/markets` | GET | 获取所有市场 | v0.1 ⏳ |
-| `/markets/{id}` | GET | 获取单个市场 | v0.1 ⏳ |
-| `/events` | GET | 获取所有事件 | v0.1 ⏳ |
+| `/markets` | GET | `getGammaMarkets()` | v0.5 ✅ |
+| `/markets/{id}` | GET | `getGammaMarket()` | v0.5 ✅ |
+| `/events` | GET | `getGammaEvents()` | v0.5 ✅ |
 
 ### Gamma 查询参数
 

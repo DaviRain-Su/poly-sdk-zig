@@ -10,6 +10,7 @@ pub const trade = @import("trade.zig");
 pub const account = @import("account.zig");
 pub const builder_types = @import("builder.zig");
 pub const rewards = @import("rewards.zig");
+pub const gamma = @import("gamma.zig");
 
 // Re-export commonly used types - enums
 pub const OrderType = enums.OrderType;
@@ -99,6 +100,31 @@ pub const LastTradesPricesRequest = rewards.LastTradesPricesRequest;
 pub const ClosedOnlyModeResponse = rewards.ClosedOnlyModeResponse;
 pub const UpdateBalanceAllowanceResponse = rewards.UpdateBalanceAllowanceResponse;
 
+// Re-export readonly API key types
+pub const ReadonlyApiKeyInfo = rewards.ReadonlyApiKeyInfo;
+pub const CreateReadonlyApiKeyParams = rewards.CreateReadonlyApiKeyParams;
+pub const CreateReadonlyApiKeyResponse = rewards.CreateReadonlyApiKeyResponse;
+pub const DeleteReadonlyApiKeyResponse = rewards.DeleteReadonlyApiKeyResponse;
+pub const ValidateReadonlyApiKeyResponse = rewards.ValidateReadonlyApiKeyResponse;
+
+// Re-export liquidity rewards types
+pub const UserEarning = rewards.UserEarning;
+pub const UserEarningsParams = rewards.UserEarningsParams;
+pub const UserTotalEarningsResponse = rewards.UserTotalEarningsResponse;
+pub const RewardPercentagesResponse = rewards.RewardPercentagesResponse;
+pub const RewardsConfig = rewards.RewardsConfig;
+pub const MarketReward = rewards.MarketReward;
+pub const CurrentRewardsResponse = rewards.CurrentRewardsResponse;
+pub const RawMarketRewardResponse = rewards.RawMarketRewardResponse;
+pub const UserEarningsAndMarketsConfigResponse = rewards.UserEarningsAndMarketsConfigResponse;
+
+// Re-export gamma types
+pub const GammaMarket = gamma.GammaMarket;
+pub const GammaEvent = gamma.GammaEvent;
+pub const Tag = gamma.Tag;
+pub const GammaMarketsParams = gamma.GammaMarketsParams;
+pub const GammaEventsParams = gamma.GammaEventsParams;
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -112,6 +138,7 @@ test "all type modules" {
     _ = account;
     _ = builder_types;
     _ = rewards;
+    _ = gamma;
 }
 
 test "type exports" {
@@ -153,4 +180,22 @@ test "rewards type exports" {
     _ = MarketTradeEvent{};
     _ = FeeRateResponse{};
     _ = ClosedOnlyModeResponse{};
+}
+
+test "liquidity rewards type exports" {
+    _ = UserEarning{};
+    _ = UserEarningsParams{};
+    _ = UserTotalEarningsResponse{};
+    _ = RewardPercentagesResponse{};
+    _ = RewardsConfig{};
+    _ = MarketReward{};
+    _ = CurrentRewardsResponse{};
+}
+
+test "gamma type exports" {
+    _ = GammaMarket{};
+    _ = GammaEvent{};
+    _ = Tag{};
+    _ = GammaMarketsParams{};
+    _ = GammaEventsParams{};
 }

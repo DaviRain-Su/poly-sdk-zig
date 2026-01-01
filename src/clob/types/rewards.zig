@@ -319,6 +319,142 @@ pub const ValidateReadonlyApiKeyResponse = struct {
 };
 
 // ============================================================================
+// 流动性奖励类型 (Liquidity Rewards)
+// ============================================================================
+
+/// 用户收益记录
+pub const UserEarning = struct {
+    /// 日期
+    date: []const u8 = "",
+
+    /// 条件 ID (市场 ID)
+    condition_id: []const u8 = "",
+
+    /// 资产地址
+    asset_address: []const u8 = "",
+
+    /// 做市商地址
+    maker_address: []const u8 = "",
+
+    /// 收益金额
+    earnings: f64 = 0,
+
+    /// 资产费率
+    asset_rate: f64 = 0,
+};
+
+/// 用户收益查询参数
+pub const UserEarningsParams = struct {
+    /// 日期 (格式: YYYY-MM-DD)
+    date: ?[]const u8 = null,
+
+    /// 条件 ID (可选)
+    condition_id: ?[]const u8 = null,
+};
+
+/// 用户总收益响应
+pub const UserTotalEarningsResponse = struct {
+    /// 总收益
+    total_earnings: f64 = 0,
+
+    /// 日期
+    date: []const u8 = "",
+
+    /// 明细列表
+    earnings: []const UserEarning = &.{},
+};
+
+/// 奖励百分比响应
+pub const RewardPercentagesResponse = struct {
+    /// 做市商百分比
+    maker_percentage: f64 = 0,
+
+    /// 吃单者百分比
+    taker_percentage: f64 = 0,
+
+    /// 协议费率百分比
+    protocol_fee_percentage: f64 = 0,
+};
+
+/// 奖励配置
+pub const RewardsConfig = struct {
+    /// 资产地址
+    asset_address: []const u8 = "",
+
+    /// 开始日期
+    start_date: []const u8 = "",
+
+    /// 结束日期
+    end_date: []const u8 = "",
+
+    /// 每日费率
+    rate_per_day: f64 = 0,
+
+    /// 总奖励
+    total_rewards: f64 = 0,
+};
+
+/// 市场奖励信息
+pub const MarketReward = struct {
+    /// 条件 ID
+    condition_id: []const u8 = "",
+
+    /// 问题
+    question: []const u8 = "",
+
+    /// 市场 slug
+    market_slug: []const u8 = "",
+
+    /// 事件 slug
+    event_slug: []const u8 = "",
+
+    /// 图片 URL
+    image: []const u8 = "",
+
+    /// 奖励最大价差
+    rewards_max_spread: f64 = 0,
+
+    /// 奖励最小数量
+    rewards_min_size: f64 = 0,
+
+    /// 代币列表 (JSON 数组)
+    tokens: ?[]const u8 = null,
+
+    /// 奖励配置列表
+    rewards_config: []const RewardsConfig = &.{},
+};
+
+/// 当前市场奖励列表响应
+pub const CurrentRewardsResponse = struct {
+    /// 市场奖励列表
+    markets: []const MarketReward = &.{},
+};
+
+/// 原始市场奖励响应
+pub const RawMarketRewardResponse = struct {
+    /// 条件 ID
+    condition_id: []const u8 = "",
+
+    /// 奖励数据 (JSON 格式)
+    data: ?[]const u8 = null,
+
+    /// 奖励配置
+    rewards_config: []const RewardsConfig = &.{},
+};
+
+/// 用户市场收益配置响应
+pub const UserEarningsAndMarketsConfigResponse = struct {
+    /// 用户收益列表
+    earnings: []const UserEarning = &.{},
+
+    /// 市场奖励配置
+    markets: []const MarketReward = &.{},
+
+    /// 总收益
+    total_earnings: f64 = 0,
+};
+
+// ============================================================================
 // 测试
 // ============================================================================
 
@@ -386,4 +522,33 @@ test "ValidateReadonlyApiKeyResponse defaults" {
     const response = ValidateReadonlyApiKeyResponse{};
     try std.testing.expect(!response.valid);
     try std.testing.expect(response.address == null);
+}
+
+test "UserEarning defaults" {
+    const earning = UserEarning{};
+    try std.testing.expectEqualStrings("", earning.date);
+    try std.testing.expectEqualStrings("", earning.condition_id);
+    try std.testing.expectEqual(@as(f64, 0), earning.earnings);
+}
+
+test "RewardsConfig defaults" {
+    const config = RewardsConfig{};
+    try std.testing.expectEqualStrings("", config.asset_address);
+    try std.testing.expectEqual(@as(f64, 0), config.rate_per_day);
+}
+
+test "MarketReward defaults" {
+    const reward = MarketReward{};
+    try std.testing.expectEqualStrings("", reward.condition_id);
+    try std.testing.expectEqual(@as(f64, 0), reward.rewards_max_spread);
+}
+
+test "UserTotalEarningsResponse defaults" {
+    const response = UserTotalEarningsResponse{};
+    try std.testing.expectEqual(@as(f64, 0), response.total_earnings);
+}
+
+test "RewardPercentagesResponse defaults" {
+    const response = RewardPercentagesResponse{};
+    try std.testing.expectEqual(@as(f64, 0), response.maker_percentage);
 }
