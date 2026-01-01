@@ -12,6 +12,7 @@
 | `order_management.zig` | 订单创建、发布和管理 | 是 |
 | `websocket.zig` | WebSocket 实时数据订阅 | 部分 |
 | `btc_ws_trader.zig` | BTC 15分钟 WebSocket 实时交易系统 | 是（实盘）/否（模拟）|
+| `btc_orderbook_monitor.zig` | BTC 15分钟订单簿实时监控 | 否 |
 
 ## 运行示例
 
@@ -26,6 +27,7 @@ zig build run-authentication        # 认证流程演示
 zig build run-order_management      # 订单管理演示
 zig build run-websocket             # WebSocket 演示
 zig build run-btc_ws_trader         # BTC 实时交易系统
+zig build run-btc_orderbook_monitor # BTC 订单簿监控
 ```
 
 ## 配置

@@ -74,6 +74,7 @@ pub fn main() !void {
         .method = "GET",
         .path = "/data/orders",
         .body = null,
+        .address = "0x0000000000000000000000000000000000000000", // 示例地址
     });
 
     std.debug.print("   L2 Header:\n", .{});

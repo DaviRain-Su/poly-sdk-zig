@@ -1160,8 +1160,14 @@ pub fn main() !void {
             std.debug.print("API 凭证获取成功!\n", .{});
             client.setApiCreds(&creds.?);
         }
+    } else {
+        client = ClobClient.init(allocator, client_config);
+    }
+    defer client.deinit();
+    defer if (creds) |*c| c.deinit();
 
-        // 检查余额和 allowance
+    // 实盘模式下检查余额和 allowance
+    if (!config.dry_run) {
         const bal_result = client.getBalanceAllowance(.{
             .asset_type = .COLLATERAL,
             .signature_type = @intFromEnum(config.signature_type),
@@ -1196,11 +1202,7 @@ pub fn main() !void {
         }
 
         std.debug.print("\n", .{});
-    } else {
-        client = ClobClient.init(allocator, client_config);
     }
-    defer client.deinit();
-    defer if (creds) |*c| c.deinit();
 
     // 创建 WebSocket 交易系统
     var trader = WsTrader.init(
