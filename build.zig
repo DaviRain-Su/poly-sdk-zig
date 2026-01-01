@@ -202,6 +202,11 @@ pub fn build(b: *std.Build) void {
             .source = "examples/debug_l1_auth.zig",
             .description = "Debug L1 authentication",
         },
+        .{
+            .name = "btc_orderbook_monitor",
+            .source = "examples/btc_orderbook_monitor.zig",
+            .description = "Monitor BTC 15m market order books (bid/ask depth)",
+        },
     };
 
     // Create a step to build and install all examples

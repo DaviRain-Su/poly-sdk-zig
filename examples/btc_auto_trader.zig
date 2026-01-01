@@ -68,16 +68,36 @@ const AutoTraderConfig = struct {
     use_testnet: bool = false,
 };
 
-/// 市场信息
+/// 市场信息 (使用固定大小缓冲区存储字符串)
 const MarketInfo = struct {
-    condition_id: []const u8,
-    yes_token_id: []const u8,
-    no_token_id: []const u8,
-    slug: []const u8,
+    condition_id_buf: [128]u8 = undefined,
+    condition_id_len: usize = 0,
+    yes_token_id_buf: [128]u8 = undefined,
+    yes_token_id_len: usize = 0,
+    no_token_id_buf: [128]u8 = undefined,
+    no_token_id_len: usize = 0,
+    slug_buf: [64]u8 = undefined,
+    slug_len: usize = 0,
     end_timestamp: i64,
     remaining_seconds: i64,
 
-    pub fn getRemainingMinutes(self: MarketInfo) i64 {
+    pub fn getConditionId(self: *const MarketInfo) []const u8 {
+        return self.condition_id_buf[0..self.condition_id_len];
+    }
+
+    pub fn getYesTokenId(self: *const MarketInfo) []const u8 {
+        return self.yes_token_id_buf[0..self.yes_token_id_len];
+    }
+
+    pub fn getNoTokenId(self: *const MarketInfo) []const u8 {
+        return self.no_token_id_buf[0..self.no_token_id_len];
+    }
+
+    pub fn getSlug(self: *const MarketInfo) []const u8 {
+        return self.slug_buf[0..self.slug_len];
+    }
+
+    pub fn getRemainingMinutes(self: *const MarketInfo) i64 {
         return @divFloor(self.remaining_seconds, 60);
     }
 };
@@ -215,10 +235,10 @@ const AutoTrader = struct {
                 self.current_market = m;
                 log("", .{});
                 log("🎯 发现适合的市场!", .{});
-                log("   Slug: {s}", .{m.slug});
+                log("   Slug: {s}", .{m.getSlug()});
                 log("   剩余时间: {d} 分钟", .{m.getRemainingMinutes()});
-                log("   YES Token: {s}", .{m.yes_token_id});
-                log("   NO Token: {s}", .{m.no_token_id});
+                log("   YES Token: {s}", .{m.getYesTokenId()});
+                log("   NO Token: {s}", .{m.getNoTokenId()});
 
                 // 阶段 2: 执行策略
                 log("", .{});
@@ -253,81 +273,158 @@ const AutoTrader = struct {
         self.printFinalStats();
     }
 
-    /// 寻找适合的市场
+    /// 寻找适合的市场 (使用 Gamma API)
     fn findSuitableMarket(self: *Self) !?MarketInfo {
-        const markets = self.client.getMarkets(.{}) catch |err| {
-            return err;
-        };
-        defer markets.deinit();
-
         const now = std.time.timestamp();
 
-        for (markets.value.data) |market| {
-            const slug = market.market_slug orelse continue;
+        // 计算当前和下一个 15 分钟时间戳
+        const interval: i64 = 900; // 15 分钟
+        const current_slot = @divFloor(now, interval) * interval;
+        const next_slot = current_slot + interval;
 
-            // 检查是否是 BTC 15m 市场
-            if (!isBtc15mMarket(slug)) continue;
+        // 尝试查找当前时段和下一个时段的市场
+        const slots = [_]i64{ current_slot, next_slot };
 
-            // 检查是否活跃
-            const is_active = market.accepting_orders orelse false;
-            if (!is_active) continue;
+        for (slots) |slot| {
+            // 构建 market slug: btc-updown-15m-{timestamp}
+            var slug_buf: [64]u8 = undefined;
+            const slug = std.fmt.bufPrint(&slug_buf, "btc-updown-15m-{d}", .{slot}) catch continue;
 
-            // 解析时间戳
-            const end_timestamp = parseTimestampFromSlug(slug);
-            if (end_timestamp == 0) continue;
+            // 使用 Gamma API 查询市场
+            if (self.fetchMarketFromGamma(slug)) |market_info| {
+                const remaining = market_info.end_timestamp - now;
+                const rating = StrategyRating.fromRemainingSeconds(remaining);
 
-            const remaining = end_timestamp - now;
-            const rating = StrategyRating.fromRemainingSeconds(remaining);
+                // 检查是否满足最小时间要求
+                if (remaining < self.config.min_remaining_minutes * 60) {
+                    log("跳过市场 {s}: 剩余 {d} 分钟 (需要 >={d})", .{
+                        slug,
+                        @divFloor(remaining, 60),
+                        self.config.min_remaining_minutes,
+                    });
+                    continue;
+                }
 
-            // 检查是否满足最小时间要求
-            if (remaining < self.config.min_remaining_minutes * 60) {
-                log("跳过市场 {s}: 剩余 {d} 分钟 (需要 >={d})", .{
+                // 检查市场是否活跃
+                if (remaining <= 0) {
+                    continue;
+                }
+
+                log("发现市场: {s} - {s} 剩余 {d} 分钟", .{
                     slug,
+                    rating.getEmoji(),
                     @divFloor(remaining, 60),
-                    self.config.min_remaining_minutes,
                 });
+
+                return market_info;
+            } else |_| {
+                // 市场不存在或请求失败，继续尝试下一个
                 continue;
             }
-
-            // 找到合适的市场
-            log("评估市场: {s} - {s} 剩余 {d} 分钟", .{
-                slug,
-                rating.getEmoji(),
-                @divFloor(remaining, 60),
-            });
-
-            // 获取 Token 信息
-            const tokens = market.tokens orelse continue;
-            if (tokens.len < 2) continue;
-
-            var yes_token: ?[]const u8 = null;
-            var no_token: ?[]const u8 = null;
-
-            for (tokens) |token| {
-                const outcome_lower = toLower(token.outcome);
-                const is_yes = std.mem.indexOf(u8, &outcome_lower, "yes") != null or
-                    std.mem.indexOf(u8, &outcome_lower, "up") != null;
-
-                if (is_yes) {
-                    yes_token = token.token_id;
-                } else {
-                    no_token = token.token_id;
-                }
-            }
-
-            if (yes_token == null or no_token == null) continue;
-
-            return MarketInfo{
-                .condition_id = market.condition_id,
-                .yes_token_id = yes_token.?,
-                .no_token_id = no_token.?,
-                .slug = slug,
-                .end_timestamp = end_timestamp,
-                .remaining_seconds = remaining,
-            };
         }
 
         return null;
+    }
+
+    /// 从 Gamma API 获取市场信息
+    fn fetchMarketFromGamma(self: *Self, slug: []const u8) !MarketInfo {
+        // 构建 Gamma API URL
+        var url_buf: [256]u8 = undefined;
+        const url = std.fmt.bufPrint(&url_buf, "https://gamma-api.polymarket.com/events?slug={s}", .{slug}) catch return error.BufferTooSmall;
+
+        // 使用 curl 获取数据
+        const argv: []const []const u8 = &.{
+            "curl",
+            "-s",
+            "-f",
+            url,
+        };
+
+        var child = std.process.Child.init(argv, self.allocator);
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
+
+        child.spawn() catch return error.SpawnFailed;
+
+        const stdout = child.stdout.?;
+        var read_buffer: [8192]u8 = undefined;
+        var response = try std.ArrayList(u8).initCapacity(self.allocator, 4096);
+        defer response.deinit(self.allocator);
+
+        while (true) {
+            const n = stdout.read(&read_buffer) catch return error.ReadFailed;
+            if (n == 0) break;
+            response.appendSlice(self.allocator, read_buffer[0..n]) catch return error.OutOfMemory;
+        }
+
+        const result = child.wait() catch return error.WaitFailed;
+        if (result != .Exited or result.Exited != 0) {
+            return error.CurlFailed;
+        }
+
+        // 解析 JSON 响应
+        return self.parseGammaResponse(response.items, slug);
+    }
+
+    /// 解析 Gamma API 响应
+    fn parseGammaResponse(self: *Self, json_data: []const u8, slug: []const u8) !MarketInfo {
+        _ = self;
+
+        // 简单解析 JSON 来提取需要的字段
+        // clobTokenIds 是一个 JSON 字符串: "clobTokenIds":"[\"token1\", \"token2\"]"
+        // 需要找到 "clobTokenIds":"[\" 然后解析
+        const clob_tokens_start = std.mem.indexOf(u8, json_data, "\"clobTokenIds\":\"[\\\"") orelse return error.TokensNotFound;
+        const tokens_data = json_data[clob_tokens_start + 19 ..]; // skip "clobTokenIds":"[\"
+
+        // 提取第一个 token (Up) - 结束于 \"
+        const first_token_end = std.mem.indexOf(u8, tokens_data, "\\\"") orelse return error.ParseError;
+        const up_token = tokens_data[0..first_token_end];
+
+        // 提取第二个 token (Down) - 跳过 \", \" 然后找下一个 \"
+        const rest = tokens_data[first_token_end + 6 ..]; // skip \", \"
+        const second_token_end = std.mem.indexOf(u8, rest, "\\\"") orelse return error.ParseError;
+        const down_token = rest[0..second_token_end];
+
+        // 提取 conditionId
+        const condition_start = std.mem.indexOf(u8, json_data, "\"conditionId\":\"") orelse return error.ConditionNotFound;
+        const condition_data = json_data[condition_start + 15 ..];
+        const condition_end = std.mem.indexOf(u8, condition_data, "\"") orelse return error.ParseError;
+        const condition_id = condition_data[0..condition_end];
+
+        // 从 slug 解析时间戳
+        const end_timestamp = parseTimestampFromSlug(slug);
+        if (end_timestamp == 0) return error.InvalidTimestamp;
+
+        const now = std.time.timestamp();
+        const remaining = end_timestamp - now;
+
+        // 创建 MarketInfo 并复制字符串到内部缓冲区
+        var info = MarketInfo{
+            .end_timestamp = end_timestamp,
+            .remaining_seconds = remaining,
+        };
+
+        // 复制 condition_id
+        if (condition_id.len > info.condition_id_buf.len) return error.BufferTooSmall;
+        @memcpy(info.condition_id_buf[0..condition_id.len], condition_id);
+        info.condition_id_len = condition_id.len;
+
+        // 复制 up_token
+        if (up_token.len > info.yes_token_id_buf.len) return error.BufferTooSmall;
+        @memcpy(info.yes_token_id_buf[0..up_token.len], up_token);
+        info.yes_token_id_len = up_token.len;
+
+        // 复制 down_token
+        if (down_token.len > info.no_token_id_buf.len) return error.BufferTooSmall;
+        @memcpy(info.no_token_id_buf[0..down_token.len], down_token);
+        info.no_token_id_len = down_token.len;
+
+        // 复制 slug
+        if (slug.len > info.slug_buf.len) return error.BufferTooSmall;
+        @memcpy(info.slug_buf[0..slug.len], slug);
+        info.slug_len = slug.len;
+
+        return info;
     }
 
     /// 执行对冲策略
@@ -347,7 +444,7 @@ const AutoTrader = struct {
             }
 
             // 获取当前价格
-            const current_price = self.getYesPrice(market.yes_token_id) catch |err| {
+            const current_price = self.getYesPrice(market.getYesTokenId()) catch |err| {
                 log("获取价格失败: {}, 重试...", .{err});
                 std.Thread.sleep(self.config.price_poll_interval_ms * std.time.ns_per_ms);
                 continue;
@@ -465,7 +562,7 @@ const AutoTrader = struct {
             const size_decimal = try Decimal.fromString(size_str);
 
             const order = try builder.createOrder(.{
-                .token_id = market.yes_token_id,
+                .token_id = market.getYesTokenId(),
                 .price = price_decimal,
                 .size = size_decimal,
                 .side = .BUY,
@@ -515,7 +612,7 @@ const AutoTrader = struct {
             const size_decimal = try Decimal.fromString(size_str);
 
             const order = try builder.createOrder(.{
-                .token_id = market.no_token_id,
+                .token_id = market.getNoTokenId(),
                 .price = price_decimal,
                 .size = size_decimal,
                 .side = .SELL,
