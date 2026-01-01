@@ -204,6 +204,10 @@ pub const ClobClient = struct {
     // Builder authentication (optional)
     builder_creds: ?*const BuilderCreds = null,
 
+    // Stored address for L2 auth (used when wallet is not available)
+    // This allows using API credentials directly without a private key
+    stored_address: ?[42]u8 = null,
+
     /// Initialize CLOB client (public API only)
     pub fn init(allocator: std.mem.Allocator, config: Config) ClobClient {
         return ClobClient{
@@ -394,7 +398,17 @@ pub const ClobClient = struct {
     /// 例如：路径 "/balance-allowance?asset_type=COLLATERAL" 签名时只用 "/balance-allowance"
     fn doAuthGet(self: *ClobClient, path: []const u8) ![]u8 {
         const creds = self.api_creds orelse return Error.Unauthorized;
-        const wallet = self.wallet orelse return Error.Unauthorized;
+
+        // Get address: prefer stored_address, fallback to wallet
+        const address: []const u8 = blk: {
+            if (self.stored_address) |*addr| {
+                break :blk addr;
+            }
+            if (self.wallet) |w| {
+                break :blk &w.getAddressChecksumHex();
+            }
+            return Error.Unauthorized;
+        };
 
         const url = try self.buildUrl(path);
         defer self.allocator.free(url);
@@ -408,12 +422,11 @@ pub const ClobClient = struct {
 
         // Generate L2 auth header (需要钱包地址)
         const l2 = L2Auth.init(creds);
-        const address = wallet.getAddressChecksumHex();
         const auth_header = l2.generateHeader(.{
             .method = "GET",
             .path = sign_path, // 使用不含查询参数的路径签名
             .body = null,
-            .address = &address,
+            .address = address,
         }) catch return Error.Unauthorized;
 
         // 构建 curl 头部参数
@@ -430,12 +443,23 @@ pub const ClobClient = struct {
         const h_pass = std.fmt.bufPrint(&h_pass_buf, "POLY_PASSPHRASE: {s}", .{auth_header.getPassphrase()}) catch return Error.BadRequest;
 
         // 使用 curl 发送请求（自动处理 gzip 压缩）
+        // 注意：不使用 -f 参数，以便看到实际的错误响应
         const argv: []const []const u8 = &.{
-            "curl", "-s",   "-f",
-            "-H",   h_addr, "-H",
-            h_key,  "-H",   h_sig,
-            "-H",   h_ts,   "-H",
-            h_pass, url,
+            "curl",
+            "-s",
+            "-w",
+            "\n%{http_code}", // 输出 HTTP 状态码
+            "-H",
+            h_addr,
+            "-H",
+            h_key,
+            "-H",
+            h_sig,
+            "-H",
+            h_ts,
+            "-H",
+            h_pass,
+            url,
         };
 
         var child = std.process.Child.init(argv, self.allocator);
@@ -457,32 +481,100 @@ pub const ClobClient = struct {
             try body.appendSlice(self.allocator, read_buffer[0..n]);
         }
 
+        // Also read stderr for error messages
+        const stderr = child.stderr.?;
+        var stderr_buffer: [4096]u8 = undefined;
+        var stderr_body = try std.ArrayList(u8).initCapacity(self.allocator, 4096);
+        defer stderr_body.deinit(self.allocator);
+
+        while (true) {
+            const n = stderr.read(&stderr_buffer) catch break;
+            if (n == 0) break;
+            try stderr_body.appendSlice(self.allocator, stderr_buffer[0..n]);
+        }
+
         const result = child.wait() catch {
             return Error.ConnectionFailed;
         };
         if (result != .Exited or result.Exited != 0) {
+            // Print error for debugging
+            if (stderr_body.items.len > 0) {
+                std.debug.print("curl stderr: {s}\n", .{stderr_body.items});
+            }
+            if (body.items.len > 0) {
+                std.debug.print("curl response: {s}\n", .{body.items});
+            }
+            std.debug.print("curl exit code: {}\n", .{result});
             return Error.ConnectionFailed;
         }
 
-        return try body.toOwnedSlice(self.allocator);
+        // 解析响应 - 最后一行是状态码
+        const response = body.items;
+        if (response.len < 4) {
+            return Error.ConnectionFailed;
+        }
+
+        // 查找最后的换行符来分离状态码
+        var status_start: usize = response.len;
+        var i: usize = response.len;
+        while (i > 0) {
+            i -= 1;
+            if (response[i] == '\n') {
+                status_start = i + 1;
+                break;
+            }
+        }
+
+        const status_str = response[status_start..];
+        const http_status = std.fmt.parseInt(u32, status_str, 10) catch 0;
+
+        // 检查 HTTP 状态码
+        if (http_status < 200 or http_status >= 300) {
+            const body_content = response[0..status_start];
+            std.debug.print("HTTP {d}: {s}\n", .{ http_status, body_content });
+            return switch (http_status) {
+                400 => Error.BadRequest,
+                401 => Error.Unauthorized,
+                403 => Error.Forbidden,
+                404 => Error.NotFound,
+                429 => Error.RateLimited,
+                500 => Error.InternalServerError,
+                else => Error.UnknownHttpError,
+            };
+        }
+
+        // 返回响应体（不包含状态码）
+        const body_content = response[0..status_start -| 1]; // -| 1 是安全减法
+        const result_body = try self.allocator.dupe(u8, body_content);
+        body.deinit(self.allocator);
+        return result_body;
     }
 
     /// Perform authenticated POST request
     fn doAuthPost(self: *ClobClient, path: []const u8, body: []const u8) ![]u8 {
         const creds = self.api_creds orelse return Error.Unauthorized;
-        const wallet = self.wallet orelse return Error.Unauthorized;
+
+        // Get address: prefer stored_address, fallback to wallet
+        const address: []const u8 = blk: {
+            if (self.stored_address) |*addr| {
+                break :blk addr;
+            }
+            if (self.wallet) |w| {
+                break :blk &w.getAddressChecksumHex();
+            }
+            return Error.Unauthorized;
+        };
 
         const url = try self.buildUrl(path);
         defer self.allocator.free(url);
 
         // Generate L2 auth header (需要钱包地址)
         const l2 = L2Auth.init(creds);
-        const address = wallet.getAddressChecksumHex();
         const auth_header = l2.generateHeader(.{
             .method = "POST",
             .path = path,
             .body = body,
-            .address = &address,
+            .address = address,
         }) catch return Error.Unauthorized;
 
         const poly_headers = auth_header.toHttpHeaders();
@@ -539,19 +631,28 @@ pub const ClobClient = struct {
     /// Perform authenticated DELETE request
     fn doAuthDelete(self: *ClobClient, path: []const u8, body: ?[]const u8) ![]u8 {
         const creds = self.api_creds orelse return Error.Unauthorized;
-        const wallet = self.wallet orelse return Error.Unauthorized;
+
+        // Get address: prefer stored_address, fallback to wallet
+        const address: []const u8 = blk: {
+            if (self.stored_address) |*addr| {
+                break :blk addr;
+            }
+            if (self.wallet) |w| {
+                break :blk &w.getAddressChecksumHex();
+            }
+            return Error.Unauthorized;
+        };
 
         const url = try self.buildUrl(path);
         defer self.allocator.free(url);
 
         // Generate L2 auth header (需要钱包地址)
         const l2 = L2Auth.init(creds);
-        const address = wallet.getAddressChecksumHex();
         const auth_header = l2.generateHeader(.{
             .method = "DELETE",
             .path = path,
             .body = body,
-            .address = &address,
+            .address = address,
         }) catch return Error.Unauthorized;
 
         const poly_headers = auth_header.toHttpHeaders();
@@ -1503,6 +1604,14 @@ pub const ClobClient = struct {
             path_len += 1;
             const param = std.fmt.bufPrint(path_buf[path_len..], "token_id={s}", .{token_id}) catch return Error.BadRequest;
             path_len += param.len;
+            has_params = true;
+        }
+
+        if (params.signature_type) |sig_type| {
+            path_buf[path_len] = if (has_params) '&' else '?';
+            path_len += 1;
+            const param = std.fmt.bufPrint(path_buf[path_len..], "signature_type={d}", .{sig_type}) catch return Error.BadRequest;
+            path_len += param.len;
         }
 
         const path = path_buf[0..path_len];
@@ -1650,6 +1759,41 @@ pub const ClobClient = struct {
     /// This is useful after obtaining credentials via createOrDeriveApiKey().
     pub fn setApiCreds(self: *ClobClient, creds: *const ApiCreds) void {
         self.api_creds = creds;
+    }
+
+    /// Set wallet address for L2 authentication
+    ///
+    /// This is useful when you have API credentials but no private key.
+    /// The address should be in EIP-55 checksum format (e.g., "0x...").
+    ///
+    /// ## Example
+    /// ```zig
+    /// var client = ClobClient.init(allocator, .{});
+    /// client.setApiCreds(&creds);
+    /// client.setAddress("0xb4517095c605F25A98c5A148DDF155A7B6f6C844");
+    ///
+    /// // Now you can use L2 authenticated endpoints
+    /// const balance = try client.getBalanceAllowance(.{});
+    /// ```
+    pub fn setAddress(self: *ClobClient, address: []const u8) void {
+        if (address.len == 42) {
+            self.stored_address = undefined;
+            @memcpy(&self.stored_address.?, address[0..42]);
+        }
+    }
+
+    /// Get the address used for L2 authentication
+    ///
+    /// Returns the stored address if set, otherwise returns the wallet's checksum address.
+    /// Returns null if neither is available.
+    pub fn getAddress(self: *const ClobClient) ?[]const u8 {
+        if (self.stored_address) |*addr| {
+            return addr;
+        }
+        if (self.wallet) |w| {
+            return &w.getAddressChecksumHex();
+        }
+        return null;
     }
 
     // =========================================================================

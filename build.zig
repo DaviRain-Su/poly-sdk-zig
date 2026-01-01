@@ -146,7 +146,7 @@ pub fn build(b: *std.Build) void {
     // Examples
     // =========================================================================
 
-    // Example definitions
+    // Example definitions - 核心示例
     const examples = [_]struct {
         name: []const u8,
         source: []const u8,
@@ -178,64 +178,9 @@ pub fn build(b: *std.Build) void {
             .description = "Run WebSocket example (real-time data subscription)",
         },
         .{
-            .name = "btc_hedge_strategy",
-            .source = "examples/btc_hedge_strategy.zig",
-            .description = "Run BTC hedge strategy (binary options arbitrage)",
-        },
-        .{
-            .name = "find_btc_markets",
-            .source = "examples/find_btc_markets.zig",
-            .description = "Run BTC market finder (search for BTC prediction markets)",
-        },
-        .{
-            .name = "btc_15m_monitor",
-            .source = "examples/btc_15m_monitor.zig",
-            .description = "Run BTC 15m market monitor (real-time market discovery)",
-        },
-        .{
-            .name = "btc_auto_trader",
-            .source = "examples/btc_auto_trader.zig",
-            .description = "Run BTC auto trader (monitor + strategy combined)",
-        },
-        .{
-            .name = "debug_l1_auth",
-            .source = "examples/debug_l1_auth.zig",
-            .description = "Debug L1 authentication",
-        },
-        .{
-            .name = "btc_orderbook_monitor",
-            .source = "examples/btc_orderbook_monitor.zig",
-            .description = "Monitor BTC 15m market order books (bid/ask depth)",
-        },
-        .{
-            .name = "btc_smart_trader",
-            .source = "examples/btc_smart_trader.zig",
-            .description = "Smart BTC 15m trader v2 (market making, arbitrage, trend)",
-        },
-        .{
-            .name = "debug_env",
-            .source = "examples/debug_env.zig",
-            .description = "Debug .env file loading",
-        },
-        .{
             .name = "btc_ws_trader",
             .source = "examples/btc_ws_trader.zig",
             .description = "BTC 15m WebSocket real-time trading system",
-        },
-        .{
-            .name = "test_order",
-            .source = "examples/test_order.zig",
-            .description = "Test real order submission",
-        },
-        .{
-            .name = "simple_order_test",
-            .source = "examples/simple_order_test.zig",
-            .description = "Simple order test with detailed error logging",
-        },
-        .{
-            .name = "check_balance",
-            .source = "examples/check_balance.zig",
-            .description = "Check wallet balance and allowance",
         },
     };
 

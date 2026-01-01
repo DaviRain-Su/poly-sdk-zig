@@ -32,8 +32,9 @@ pub const ApiCreds = struct {
     /// API Passphrase（附加验证）
     api_passphrase: Secret([]const u8),
 
-    /// 内存分配器（用于释放）
-    allocator: Allocator,
+    /// 内存分配器（用于释放，可选）
+    /// 如果为 null，表示凭证由 initFromStrings() 创建，不需要释放
+    allocator: ?Allocator = null,
 
     const Self = @This();
 
@@ -73,7 +74,7 @@ pub const ApiCreds = struct {
         };
     }
 
-    /// 创建 API 凭证（手动构造）
+    /// 创建 API 凭证（手动构造，会复制内存）
     pub fn init(
         allocator: Allocator,
         api_key: []const u8,
@@ -97,17 +98,48 @@ pub const ApiCreds = struct {
         };
     }
 
+    /// 从字符串直接创建 API 凭证（不复制内存）
+    ///
+    /// 用于从环境变量或配置文件加载凭证，不需要分配器。
+    /// 注意：调用者必须确保传入的字符串生命周期足够长。
+    /// 此方法创建的凭证不需要调用 deinit()（调用也是安全的）。
+    ///
+    /// 示例:
+    /// ```zig
+    /// const api_key = env.get("POLY_API_KEY") orelse return error.MissingCredentials;
+    /// const api_secret = env.get("POLY_API_SECRET") orelse return error.MissingCredentials;
+    /// const passphrase = env.get("POLY_PASSPHRASE") orelse return error.MissingCredentials;
+    ///
+    /// var creds = ApiCreds.initFromStrings(api_key, api_secret, passphrase);
+    /// client.setApiCreds(&creds);
+    /// ```
+    pub fn initFromStrings(
+        api_key: []const u8,
+        api_secret: []const u8,
+        api_passphrase: []const u8,
+    ) Self {
+        return Self{
+            .api_key = api_key,
+            .api_secret = Secret([]const u8).init(api_secret),
+            .api_passphrase = Secret([]const u8).init(api_passphrase),
+            .allocator = null, // No allocator needed for borrowed strings
+        };
+    }
+
     /// 释放资源
     ///
     /// 会先清零敏感数据，然后释放内存。
+    /// 对于 initFromStrings() 创建的凭证，此方法不会释放内存（因为内存不是由此结构分配的）。
     pub fn deinit(self: *Self) void {
         // 清零敏感数据
         self.zeroize();
 
-        // 释放内存
-        self.allocator.free(self.api_key);
-        self.allocator.free(self.api_secret.reveal());
-        self.allocator.free(self.api_passphrase.reveal());
+        // 只有当有 allocator 时才释放内存
+        if (self.allocator) |alloc| {
+            alloc.free(self.api_key);
+            alloc.free(self.api_secret.reveal());
+            alloc.free(self.api_passphrase.reveal());
+        }
     }
 
     /// 安全清零敏感数据
@@ -243,4 +275,36 @@ test "ApiCreds.zeroize" {
 
     // 仍然需要释放内存
     creds.deinit();
+}
+
+test "ApiCreds.initFromStrings" {
+    // 使用静态字符串创建凭证
+    var creds = ApiCreds.initFromStrings(
+        "static-key",
+        "static-secret",
+        "static-passphrase",
+    );
+
+    // 验证字段
+    try std.testing.expectEqualStrings("static-key", creds.getApiKey());
+    try std.testing.expectEqualStrings("static-secret", creds.getApiSecret());
+    try std.testing.expectEqualStrings("static-passphrase", creds.getApiPassphrase());
+
+    // allocator 应该是 null
+    try std.testing.expectEqual(@as(?std.mem.Allocator, null), creds.allocator);
+
+    // deinit 应该是安全的（不会尝试释放内存）
+    creds.deinit();
+}
+
+test "ApiCreds.initFromStrings with deinit is safe" {
+    // 验证对 initFromStrings 创建的凭证调用 deinit 是安全的
+    var creds = ApiCreds.initFromStrings(
+        "key1",
+        "secret1",
+        "pass1",
+    );
+    defer creds.deinit(); // 应该不会崩溃
+
+    try std.testing.expectEqualStrings("key1", creds.getApiKey());
 }

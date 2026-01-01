@@ -32,6 +32,9 @@ const PriceChangeMessage = ws.PriceChangeMessage;
 // 配置
 // ============================================================================
 
+/// 签名类型 (0=EOA, 1=POLY_PROXY, 2=POLY_GNOSIS_SAFE)
+const SignatureType = poly.order.types.SignatureType;
+
 const WsTraderConfig = struct {
     /// 模拟模式（不实际下单）
     dry_run: bool = true,
@@ -53,6 +56,9 @@ const WsTraderConfig = struct {
 
     /// 是否使用测试网
     use_testnet: bool = false,
+
+    /// 签名类型 (0=EOA, 1=POLY_PROXY, 2=POLY_GNOSIS_SAFE)
+    signature_type: SignatureType = .EOA,
 };
 
 /// 市场信息
@@ -675,6 +681,7 @@ const WsTrader = struct {
             }, .{
                 .tick_size = .@"0.01",
                 .neg_risk = false,
+                .signature_type = self.config.signature_type,
             });
 
             const response = self.client.postOrder(&order, .GTC) catch |err| {
@@ -1046,6 +1053,10 @@ pub fn main() !void {
     var env = poly.loadEnvOrEmpty(allocator, ".env");
     defer env.deinit();
 
+    // 解析签名类型
+    const sig_type_val = env.getInt(u8, "WS_TRADER_SIGNATURE_TYPE", 2); // 默认 POLY_GNOSIS_SAFE
+    const signature_type = SignatureType.fromU8(sig_type_val) orelse .POLY_GNOSIS_SAFE;
+
     // 解析配置
     const config = WsTraderConfig{
         .dry_run = env.getBool("WS_TRADER_DRY_RUN", true),
@@ -1055,6 +1066,7 @@ pub fn main() !void {
         .order_size = env.getFloat(f64, "WS_TRADER_ORDER_SIZE", 50.0),
         .max_position = env.getFloat(f64, "WS_TRADER_MAX_POSITION", 200.0),
         .use_testnet = env.getBool("POLY_USE_TESTNET", false),
+        .signature_type = signature_type,
     };
 
     // 创建客户端配置
