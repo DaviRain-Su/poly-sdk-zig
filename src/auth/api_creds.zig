@@ -131,11 +131,12 @@ pub const ApiCreds = struct {
     /// 会先清零敏感数据，然后释放内存。
     /// 对于 initFromStrings() 创建的凭证，此方法不会释放内存（因为内存不是由此结构分配的）。
     pub fn deinit(self: *Self) void {
-        // 清零敏感数据
-        self.zeroize();
-
-        // 只有当有 allocator 时才释放内存
+        // 只有当有 allocator 时才清零和释放内存
+        // initFromStrings() 创建的凭证使用借用的字符串，可能是只读的，不能清零
         if (self.allocator) |alloc| {
+            // 清零敏感数据
+            self.zeroize();
+            // 释放内存
             alloc.free(self.api_key);
             alloc.free(self.api_secret.reveal());
             alloc.free(self.api_passphrase.reveal());

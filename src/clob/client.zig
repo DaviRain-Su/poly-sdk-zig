@@ -449,9 +449,13 @@ pub const ClobClient = struct {
             "-s",
             "--compressed", // 自动处理压缩
             "--retry",
-            "3", // 重试 3 次
+            "5", // 重试 5 次
             "--retry-delay",
-            "1", // 重试间隔 1 秒
+            "2", // 重试间隔 2 秒
+            "--retry-connrefused", // 连接拒绝时重试
+            "--retry-all-errors", // 所有错误都重试
+            "--connect-timeout",
+            "30", // 连接超时 30 秒
             "-w",
             "\n%{http_code}", // 输出 HTTP 状态码
             "-H",
@@ -601,9 +605,13 @@ pub const ClobClient = struct {
             "-s",
             "--compressed", // 自动处理压缩
             "--retry",
-            "3", // 重试 3 次
+            "5", // 重试 5 次
             "--retry-delay",
-            "1", // 重试间隔 1 秒
+            "2", // 重试间隔 2 秒
+            "--retry-connrefused", // 连接拒绝时重试
+            "--retry-all-errors", // 所有错误都重试
+            "--connect-timeout",
+            "30", // 连接超时 30 秒
             "-X",
             "POST",
             "-w",

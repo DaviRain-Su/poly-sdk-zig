@@ -972,6 +972,49 @@ const HedgeArbitrageBot = struct {
             self.config.hedge_profit_threshold * 100,
         });
         std.debug.print("╚═══════════════════════════════════════════════════════════════════════════╝\n", .{});
+
+        // ========== 订单簿显示 ==========
+        const up_spread = g_live_book.up_best_ask - g_live_book.up_best_bid;
+        const down_spread = g_live_book.down_best_ask - g_live_book.down_best_bid;
+        const total_mid = g_live_book.up_mid_price + g_live_book.down_mid_price;
+
+        std.debug.print("\n", .{});
+        std.debug.print("┌─────────────────────────────────────┬─────────────────────────────────────┐\n", .{});
+        std.debug.print("│          🟢 UP (涨)                 │          🔴 DOWN (跌)               │\n", .{});
+        std.debug.print("├─────────────────────────────────────┼─────────────────────────────────────┤\n", .{});
+        std.debug.print("│  买价: {d:.4}   卖价: {d:.4}        │  买价: {d:.4}   卖价: {d:.4}        │\n", .{
+            g_live_book.up_best_bid,
+            g_live_book.up_best_ask,
+            g_live_book.down_best_bid,
+            g_live_book.down_best_ask,
+        });
+        std.debug.print("│  中间价: {d:.4}  价差: {d:.4}       │  中间价: {d:.4}  价差: {d:.4}       │\n", .{
+            g_live_book.up_mid_price,
+            up_spread,
+            g_live_book.down_mid_price,
+            down_spread,
+        });
+        std.debug.print("└─────────────────────────────────────┴─────────────────────────────────────┘\n", .{});
+
+        // 市场健康状态
+        if (up_spread > 0.5 or down_spread > 0.5) {
+            std.debug.print("  ⚠️  警告: 价差过大! 流动性不足\n", .{});
+        } else if (up_spread > 0.2 or down_spread > 0.2) {
+            std.debug.print("  ⚡ 注意: 价差较大，交易需谨慎\n", .{});
+        } else if (up_spread > 0 and down_spread > 0) {
+            std.debug.print("  ✅ 市场健康: 价差正常\n", .{});
+        }
+
+        // 套利机会检测
+        if (total_mid > 0) {
+            if (total_mid < 0.98) {
+                std.debug.print("  💰 套利机会! UP + DOWN = {d:.4} < 1.00\n", .{total_mid});
+            } else if (total_mid > 1.02) {
+                std.debug.print("  💰 套利机会! UP + DOWN = {d:.4} > 1.00\n", .{total_mid});
+            } else {
+                std.debug.print("  📊 UP + DOWN = {d:.4} (正常)\n", .{total_mid});
+            }
+        }
     }
 
     /// 打印市场总结
@@ -1325,6 +1368,9 @@ pub fn main() !void {
             .signature_type = @intFromEnum(config.signature_type),
         }) catch |err| {
             std.debug.print("查询余额失败: {}\n", .{err});
+            // 清理已分配的资源
+            if (creds) |*c| c.deinit();
+            client.deinit();
             return err;
         };
         defer bal_result.deinit();
@@ -1347,6 +1393,9 @@ pub fn main() !void {
 
         if (bal_usdc < config.max_order_size) {
             std.debug.print("\n⚠️  余额不足\n", .{});
+            // 清理已分配的资源
+            if (creds) |*c| c.deinit();
+            client.deinit();
             return error.InsufficientBalance;
         }
 
