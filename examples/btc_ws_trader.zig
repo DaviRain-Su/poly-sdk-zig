@@ -477,6 +477,21 @@ const HedgeArbitrageBot = struct {
     fn executeStrategy(self: *Self, market: MarketInfo) !void {
         var last_print_time: i64 = 0;
         var first_price_received = false;
+        var use_websocket = false;
+
+        // 尝试连接 WebSocket 获取实时数据
+        self.connectWebSocket(market) catch |err| {
+            log("  WebSocket 连接失败: {}，使用 HTTP 轮询", .{err});
+        };
+        if (self.ws_channel != null) {
+            use_websocket = true;
+            log("  ✅ WebSocket 已连接，使用实时数据", .{});
+            // 等待 WebSocket 接收初始数据
+            std.Thread.sleep(1 * std.time.ns_per_s);
+        }
+
+        // 先获取一次初始订单簿数据
+        self.fetchOrderBook(market) catch {};
 
         while (self.running) {
             const now = std.time.timestamp();
@@ -488,12 +503,15 @@ const HedgeArbitrageBot = struct {
                 break;
             }
 
-            // 获取订单簿数据
-            self.fetchOrderBook(market) catch |err| {
-                log("  获取订单簿失败: {}", .{err});
-                std.Thread.sleep(1 * std.time.ns_per_s);
-                continue;
-            };
+            // 如果使用 WebSocket，只需偶尔同步一次；否则每次轮询
+            if (!use_websocket or g_live_book.update_count == 0 or (now - g_live_book.last_update) > 5) {
+                // HTTP 轮询获取订单簿数据
+                self.fetchOrderBook(market) catch |err| {
+                    log("  获取订单簿失败: {}", .{err});
+                    std.Thread.sleep(500 * std.time.ns_per_ms);
+                    continue;
+                };
+            }
 
             const yes_price = g_live_book.yesPrice();
 
@@ -563,17 +581,20 @@ const HedgeArbitrageBot = struct {
                     const profit_ratio = (yes_price - avg_buy_price) / avg_buy_price;
 
                     if (profit_ratio >= self.config.hedge_profit_threshold) {
-                        try self.executeHedge(market, yes_price);
-                        self.phase = .hedged;
-                        log("", .{});
-                        log("  ✅ 对冲完成! 锁定利润", .{});
-                        log("  YES 成本: ${d:.2}, NO 收入: ${d:.2}", .{
-                            self.yes_position.total_cost,
-                            self.no_position.total_revenue,
-                        });
-                        log("  锁定利润: ${d:.2}", .{
-                            self.no_position.total_revenue - self.yes_position.total_cost + self.yes_position.shares,
-                        });
+                        const hedge_success = try self.executeHedge(market, yes_price);
+                        if (hedge_success) {
+                            self.phase = .hedged;
+                            log("", .{});
+                            log("  ✅ 对冲完成! 锁定利润", .{});
+                            log("  YES 成本: ${d:.2}, NO 收入: ${d:.2}", .{
+                                self.yes_position.total_cost,
+                                self.no_position.total_revenue,
+                            });
+                            log("  锁定利润: ${d:.2}", .{
+                                self.no_position.total_revenue - self.yes_position.total_cost + self.yes_position.shares,
+                            });
+                        }
+                        // 如果对冲失败，保持 waiting_for_rebound 状态，下次继续尝试
                     }
                 },
 
@@ -583,8 +604,12 @@ const HedgeArbitrageBot = struct {
                 },
             }
 
-            // 休眠
-            std.Thread.sleep(500 * std.time.ns_per_ms);
+            // 休眠 - WebSocket 模式下更快响应
+            if (use_websocket) {
+                std.Thread.sleep(100 * std.time.ns_per_ms); // 100ms
+            } else {
+                std.Thread.sleep(500 * std.time.ns_per_ms); // 500ms
+            }
         }
     }
 
@@ -646,20 +671,31 @@ const HedgeArbitrageBot = struct {
 
         // 计算股数
         const buy_price = g_live_book.up_best_ask; // 以卖一价买入
-        const shares = buy_amount / buy_price;
+        var shares = buy_amount / buy_price;
 
-        log("  📈 买入 YES: {d:.2} 股 @ {d:.4}, 金额: ${d:.2}", .{ shares, buy_price, buy_amount });
+        // 确保订单金额 >= $1 (API 最低要求)
+        const min_api_amount: f64 = 1.0;
+        const actual_amount = shares * buy_price;
+        if (actual_amount < min_api_amount) {
+            // 调整股数以满足最低金额要求
+            shares = @ceil(min_api_amount / buy_price);
+        }
+
+        const final_amount = shares * buy_price;
+        log("  📈 买入 YES: {d:.2} 股 @ {d:.4}, 金额: ${d:.2}", .{ shares, buy_price, final_amount });
 
         if (self.config.dry_run) {
             // 模拟模式
-            self.yes_position.addBuy(shares, buy_amount);
+            self.yes_position.addBuy(shares, final_amount);
             self.stats.yes_buys += 1;
         } else {
             // 实盘下单
             if (self.builder) |*builder| {
                 const price_str = try std.fmt.allocPrint(self.allocator, "{d:.2}", .{buy_price});
                 defer self.allocator.free(price_str);
-                const size_str = try std.fmt.allocPrint(self.allocator, "{d:.0}", .{shares});
+                // 使用整数股数（向上取整确保金额足够）
+                const int_shares: u64 = @intFromFloat(@ceil(shares));
+                const size_str = try std.fmt.allocPrint(self.allocator, "{d}", .{int_shares});
                 defer self.allocator.free(size_str);
 
                 const order = try builder.createOrder(.{
@@ -675,28 +711,45 @@ const HedgeArbitrageBot = struct {
 
                 const response = self.client.postOrder(&order, .GTC) catch |err| {
                     log("  ❌ 下单失败: {}", .{err});
+                    std.Thread.sleep(5 * std.time.ns_per_s); // 暂停5秒让用户看到错误
                     return;
                 };
 
                 if (response.success) {
-                    self.yes_position.addBuy(shares, buy_amount);
+                    const order_shares = @as(f64, @floatFromInt(int_shares));
+                    const order_cost = order_shares * buy_price;
+                    self.yes_position.addBuy(order_shares, order_cost);
                     self.stats.yes_buys += 1;
-                    log("  ✅ 订单成功! ID: {s}", .{response.orderID orelse "N/A"});
+                    log("  ✅ 订单成功!", .{});
                 } else {
-                    log("  ❌ 订单被拒绝: {s}", .{response.errorMsg orelse "未知错误"});
+                    log("  ❌ 订单被拒绝", .{});
+                    std.Thread.sleep(5 * std.time.ns_per_s); // 暂停5秒让用户看到错误
                 }
             }
         }
     }
 
     /// 执行对冲（卖出 NO）
-    fn executeHedge(self: *Self, market: MarketInfo, _: f64) !void {
-        // 卖出等量的 NO 股份
-        const shares_to_sell = self.yes_position.shares;
+    /// 返回 true 表示对冲成功，false 表示失败
+    fn executeHedge(self: *Self, market: MarketInfo, _: f64) !bool {
+        // 卖出等量的 NO 股份（使用整数）
+        const int_shares: u64 = @intFromFloat(@floor(self.yes_position.shares));
+        if (int_shares == 0) {
+            log("  ⚠️ 没有足够的 YES 持仓进行对冲", .{});
+            return false;
+        }
+
+        const shares_to_sell = @as(f64, @floatFromInt(int_shares));
         const no_sell_price = g_live_book.down_best_bid; // 以买一价卖出
         const revenue = shares_to_sell * no_sell_price;
 
-        log("  📉 对冲卖出 NO: {d:.2} 股 @ {d:.4}, 收入: ${d:.2}", .{ shares_to_sell, no_sell_price, revenue });
+        // 确保订单金额 >= $1 (API 最低要求)
+        if (revenue < 1.0) {
+            log("  ⚠️ 对冲金额 ${d:.2} 小于最低要求 $1，跳过", .{revenue});
+            return false;
+        }
+
+        log("  📉 对冲卖出 NO: {d:.0} 股 @ {d:.4}, 收入: ${d:.2}", .{ shares_to_sell, no_sell_price, revenue });
 
         if (self.config.dry_run) {
             // 模拟模式
@@ -709,12 +762,13 @@ const HedgeArbitrageBot = struct {
             const locked_value = shares_to_sell; // 每份 YES+NO = $1
             const profit = locked_value - self.yes_position.total_cost;
             self.stats.total_profit += profit;
+            return true;
         } else {
             // 实盘下单 - 卖出 NO
             if (self.builder) |*builder| {
                 const price_str = try std.fmt.allocPrint(self.allocator, "{d:.2}", .{no_sell_price});
                 defer self.allocator.free(price_str);
-                const size_str = try std.fmt.allocPrint(self.allocator, "{d:.0}", .{shares_to_sell});
+                const size_str = try std.fmt.allocPrint(self.allocator, "{d}", .{int_shares});
                 defer self.allocator.free(size_str);
 
                 const order = try builder.createOrder(.{
@@ -730,7 +784,8 @@ const HedgeArbitrageBot = struct {
 
                 const response = self.client.postOrder(&order, .GTC) catch |err| {
                     log("  ❌ 对冲下单失败: {}", .{err});
-                    return;
+                    std.Thread.sleep(5 * std.time.ns_per_s); // 暂停5秒让用户看到错误
+                    return false;
                 };
 
                 if (response.success) {
@@ -741,11 +796,15 @@ const HedgeArbitrageBot = struct {
                     const profit = locked_value - self.yes_position.total_cost;
                     self.stats.total_profit += profit;
 
-                    log("  ✅ 对冲成功! ID: {s}", .{response.orderID orelse "N/A"});
+                    log("  ✅ 对冲成功!", .{});
+                    return true;
                 } else {
-                    log("  ❌ 对冲被拒绝: {s}", .{response.errorMsg orelse "未知错误"});
+                    log("  ❌ 对冲被拒绝", .{});
+                    std.Thread.sleep(5 * std.time.ns_per_s); // 暂停5秒让用户看到错误
+                    return false;
                 }
             }
+            return false;
         }
     }
 
@@ -839,6 +898,15 @@ const HedgeArbitrageBot = struct {
             mins,
             secs,
             @tagName(self.phase),
+        });
+        // 显示数据源和更新次数
+        const now = std.time.timestamp();
+        const data_age = now - g_live_book.last_update;
+        const data_source = if (self.ws_channel != null) "WebSocket" else "HTTP轮询";
+        std.debug.print("║  数据源: {s:<10} 更新: {d} 次  延迟: {d}s                       ║\n", .{
+            data_source,
+            g_live_book.update_count,
+            data_age,
         });
         std.debug.print("╠═══════════════════════════════════════════════════════════════════════════╣\n", .{});
         std.debug.print("║                          价 格 监 控                                      ║\n", .{});

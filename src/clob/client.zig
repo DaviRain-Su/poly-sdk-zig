@@ -447,6 +447,11 @@ pub const ClobClient = struct {
         const argv: []const []const u8 = &.{
             "curl",
             "-s",
+            "--compressed", // 自动处理压缩
+            "--retry",
+            "3", // 重试 3 次
+            "--retry-delay",
+            "1", // 重试间隔 1 秒
             "-w",
             "\n%{http_code}", // 输出 HTTP 状态码
             "-H",
@@ -550,7 +555,7 @@ pub const ClobClient = struct {
         return result_body;
     }
 
-    /// Perform authenticated POST request
+    /// Perform authenticated POST request using curl (handles gzip automatically)
     fn doAuthPost(self: *ClobClient, path: []const u8, body: []const u8) ![]u8 {
         const creds = self.api_creds orelse return Error.Unauthorized;
 
@@ -577,55 +582,136 @@ pub const ClobClient = struct {
             .address = address,
         }) catch return Error.Unauthorized;
 
-        const poly_headers = auth_header.toHttpHeaders();
+        // 构建 curl 头部参数
+        var h_addr_buf: [100]u8 = undefined;
+        var h_key_buf: [100]u8 = undefined;
+        var h_sig_buf: [200]u8 = undefined;
+        var h_ts_buf: [100]u8 = undefined;
+        var h_pass_buf: [200]u8 = undefined;
 
-        const uri = std.Uri.parse(url) catch return Error.BadRequest;
+        const h_addr = std.fmt.bufPrint(&h_addr_buf, "POLY_ADDRESS: {s}", .{auth_header.getAddress()}) catch return Error.BadRequest;
+        const h_key = std.fmt.bufPrint(&h_key_buf, "POLY_API_KEY: {s}", .{auth_header.getApiKey()}) catch return Error.BadRequest;
+        const h_sig = std.fmt.bufPrint(&h_sig_buf, "POLY_SIGNATURE: {s}", .{auth_header.getSignature()}) catch return Error.BadRequest;
+        const h_ts = std.fmt.bufPrint(&h_ts_buf, "POLY_TIMESTAMP: {s}", .{auth_header.getTimestamp()}) catch return Error.BadRequest;
+        const h_pass = std.fmt.bufPrint(&h_pass_buf, "POLY_PASSPHRASE: {s}", .{auth_header.getPassphrase()}) catch return Error.BadRequest;
 
-        var req = self.http_client.request(.POST, uri, .{
-            .extra_headers = &[_]std.http.Header{
-                .{ .name = "Accept", .value = "application/json" },
-                .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
-                .{ .name = "Content-Type", .value = "application/json" },
-                poly_headers[0],
-                poly_headers[1],
-                poly_headers[2],
-                poly_headers[3],
-                poly_headers[4],
-            },
-        }) catch |err| {
-            return switch (err) {
-                error.ConnectionRefused => Error.ConnectionRefused,
-                error.ConnectionResetByPeer => Error.ConnectionReset,
-                error.ConnectionTimedOut => Error.Timeout,
-                error.NetworkUnreachable => Error.ConnectionFailed,
-                error.UnknownHostName => Error.DnsResolutionFailed,
-                else => Error.ConnectionFailed,
-            };
+        // 使用 curl 发送 POST 请求（自动处理 gzip 压缩）
+        const argv: []const []const u8 = &.{
+            "curl",
+            "-s",
+            "--compressed", // 自动处理压缩
+            "--retry",
+            "3", // 重试 3 次
+            "--retry-delay",
+            "1", // 重试间隔 1 秒
+            "-X",
+            "POST",
+            "-w",
+            "\n%{http_code}",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            "Accept: application/json",
+            "-H",
+            h_addr,
+            "-H",
+            h_key,
+            "-H",
+            h_sig,
+            "-H",
+            h_ts,
+            "-H",
+            h_pass,
+            "-d",
+            body,
+            url,
         };
-        defer req.deinit();
 
-        // Send body
-        req.transfer_encoding = .{ .content_length = body.len };
-        var body_writer = req.sendBodyUnflushed(&.{}) catch return Error.ConnectionFailed;
-        body_writer.writer.writeAll(body) catch return Error.ConnectionFailed;
-        body_writer.end() catch return Error.ConnectionFailed;
-        if (req.connection) |conn| {
-            conn.flush() catch return Error.ConnectionFailed;
-        }
+        var child = std.process.Child.init(argv, self.allocator);
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
 
-        var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
+        try child.spawn();
 
-        if (errorFromStatus(response.head.status)) |err| {
-            // 读取错误响应体用于调试
-            const error_body = readResponseBody(self.allocator, &response) catch {
-                return err;
+        const stdout = child.stdout.?;
+        var read_buffer: [8192]u8 = undefined;
+        var response_body = try std.ArrayList(u8).initCapacity(self.allocator, 1024 * 1024);
+        errdefer response_body.deinit(self.allocator);
+
+        while (true) {
+            const n = stdout.read(&read_buffer) catch {
+                return Error.ConnectionFailed;
             };
-            defer self.allocator.free(error_body);
-            std.debug.print("API Error ({d}): {s}\n", .{ @intFromEnum(response.head.status), error_body });
-            return err;
+            if (n == 0) break;
+            try response_body.appendSlice(self.allocator, read_buffer[0..n]);
         }
 
-        return readResponseBody(self.allocator, &response) catch return Error.ConnectionFailed;
+        // Also read stderr for error messages
+        const stderr = child.stderr.?;
+        var stderr_buffer: [4096]u8 = undefined;
+        var stderr_body = try std.ArrayList(u8).initCapacity(self.allocator, 4096);
+        defer stderr_body.deinit(self.allocator);
+
+        while (true) {
+            const n = stderr.read(&stderr_buffer) catch break;
+            if (n == 0) break;
+            try stderr_body.appendSlice(self.allocator, stderr_buffer[0..n]);
+        }
+
+        const result = child.wait() catch {
+            return Error.ConnectionFailed;
+        };
+        if (result != .Exited or result.Exited != 0) {
+            if (stderr_body.items.len > 0) {
+                std.debug.print("curl stderr: {s}\n", .{stderr_body.items});
+            }
+            if (response_body.items.len > 0) {
+                std.debug.print("curl response: {s}\n", .{response_body.items});
+            }
+            std.debug.print("curl exit code: {}\n", .{result});
+            return Error.ConnectionFailed;
+        }
+
+        // 解析响应 - 最后一行是状态码
+        const response = response_body.items;
+        if (response.len < 4) {
+            return Error.ConnectionFailed;
+        }
+
+        // 查找最后的换行符来分离状态码
+        var status_start: usize = response.len;
+        var i: usize = response.len;
+        while (i > 0) {
+            i -= 1;
+            if (response[i] == '\n') {
+                status_start = i + 1;
+                break;
+            }
+        }
+
+        const status_str = response[status_start..];
+        const http_status = std.fmt.parseInt(u32, status_str, 10) catch 0;
+
+        // 检查 HTTP 状态码
+        if (http_status < 200 or http_status >= 300) {
+            const body_content = response[0..status_start];
+            std.debug.print("HTTP {d}: {s}\n", .{ http_status, body_content });
+            return switch (http_status) {
+                400 => Error.BadRequest,
+                401 => Error.Unauthorized,
+                403 => Error.Forbidden,
+                404 => Error.NotFound,
+                429 => Error.RateLimited,
+                500 => Error.InternalServerError,
+                else => Error.UnknownHttpError,
+            };
+        }
+
+        // 返回响应体（不包含状态码）
+        const body_content = response[0..status_start -| 1];
+        const result_body = try self.allocator.dupe(u8, body_content);
+        response_body.deinit(self.allocator);
+        return result_body;
     }
 
     /// Perform authenticated DELETE request
@@ -662,6 +748,7 @@ pub const ClobClient = struct {
         var req = self.http_client.request(.DELETE, uri, .{
             .extra_headers = &[_]std.http.Header{
                 .{ .name = "Accept", .value = "application/json" },
+                .{ .name = "Accept-Encoding", .value = "identity" }, // Request no compression
                 .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
                 .{ .name = "Content-Type", .value = "application/json" },
                 poly_headers[0],
@@ -726,6 +813,7 @@ pub const ClobClient = struct {
         var req = self.http_client.request(.GET, uri, .{
             .extra_headers = &[_]std.http.Header{
                 .{ .name = "Accept", .value = "application/json" },
+                .{ .name = "Accept-Encoding", .value = "identity" }, // Request no compression
                 .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
                 .{ .name = "Content-Type", .value = "application/json" },
                 poly_headers[0],
@@ -777,6 +865,7 @@ pub const ClobClient = struct {
         var req = self.http_client.request(.POST, uri, .{
             .extra_headers = &[_]std.http.Header{
                 .{ .name = "Accept", .value = "application/json" },
+                .{ .name = "Accept-Encoding", .value = "identity" }, // Request no compression
                 .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
                 .{ .name = "Content-Type", .value = "application/json" },
                 poly_headers[0],
@@ -836,6 +925,7 @@ pub const ClobClient = struct {
         var req = self.http_client.request(.DELETE, uri, .{
             .extra_headers = &[_]std.http.Header{
                 .{ .name = "Accept", .value = "application/json" },
+                .{ .name = "Accept-Encoding", .value = "identity" }, // Request no compression
                 .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
                 .{ .name = "Content-Type", .value = "application/json" },
                 poly_headers[0],
@@ -1315,11 +1405,6 @@ pub const ClobClient = struct {
 
         const response_body = try self.doAuthPost(Endpoints.ORDER, json_body);
         defer self.allocator.free(response_body);
-
-        // 调试：打印响应
-        if (response_body.len > 0) {
-            std.debug.print("Order API Response: {s}\n", .{response_body});
-        }
 
         const parsed = std.json.parseFromSlice(types.PostOrderResponse, self.allocator, response_body, .{
             .ignore_unknown_fields = true,
