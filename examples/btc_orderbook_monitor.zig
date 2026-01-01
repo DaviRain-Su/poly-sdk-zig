@@ -324,21 +324,23 @@ const OrderBookMonitor = struct {
     }
 
     /// 寻找 BTC 15m 市场 (使用 Gamma API)
+    /// 注意: 市场 slug 格式是 btc-updown-15m-{结束时间戳}
     pub fn findBtc15mMarket(self: *Self) !?MarketInfo {
         const now = std.time.timestamp();
 
-        // 计算当前和下一个 15 分钟时间戳
+        // 计算时间戳
         const interval: i64 = 900; // 15 分钟
-        const current_slot = @divFloor(now, interval) * interval;
-        const next_slot = current_slot + interval;
+        const current_slot_start = @divFloor(now, interval) * interval;
+        const current_market_end = current_slot_start + interval; // 正在进行的市场
+        const next_market_end = current_slot_start + 2 * interval; // 下一个市场
 
-        // 尝试查找当前时段和下一个时段的市场
-        const slots = [_]i64{ current_slot, next_slot };
+        // 优先选择正在进行的市场
+        const slots = [_]i64{ current_market_end, next_market_end };
 
-        for (slots) |slot| {
-            // 构建 market slug: btc-updown-15m-{timestamp}
+        for (slots) |end_time| {
+            // 构建 market slug: btc-updown-15m-{结束时间戳}
             var slug_buf: [64]u8 = undefined;
-            const slug = std.fmt.bufPrint(&slug_buf, "btc-updown-15m-{d}", .{slot}) catch continue;
+            const slug = std.fmt.bufPrint(&slug_buf, "btc-updown-15m-{d}", .{end_time}) catch continue;
 
             // 使用 Gamma API 查询市场
             if (self.fetchMarketFromGamma(slug)) |market_info| {
@@ -349,6 +351,12 @@ const OrderBookMonitor = struct {
                     continue;
                 }
 
+                std.debug.print("[{d}] 找到活跃市场: {s}，剩余 {d} 分钟 {d} 秒\n", .{
+                    now,
+                    slug,
+                    @divFloor(remaining, 60),
+                    @mod(remaining, 60),
+                });
                 return market_info;
             } else |_| {
                 continue;

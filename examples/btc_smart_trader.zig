@@ -930,29 +930,38 @@ const SmartTrader = struct {
     }
 
     /// 寻找适合的市场
+    /// 注意: 市场 slug 格式是 btc-updown-15m-{结束时间戳}
     fn findSuitableMarket(self: *Self) !?MarketInfo {
         const now = std.time.timestamp();
-        const interval: i64 = 900;
-        const current_slot = @divFloor(now, interval) * interval;
-        const next_slot = current_slot + interval;
+        const interval: i64 = 900; // 15 分钟
 
-        const slots = [_]i64{ current_slot, next_slot };
+        // 计算当前时段的结束时间 (这是正在进行的市场)
+        const current_slot_start = @divFloor(now, interval) * interval;
+        const current_market_end = current_slot_start + interval; // 正在进行的市场
+        const next_market_end = current_slot_start + 2 * interval; // 下一个市场
 
-        for (slots) |slot| {
+        // 优先选择正在进行的市场，然后是下一个市场
+        const slots = [_]i64{ current_market_end, next_market_end };
+
+        for (slots) |end_time| {
             var slug_buf: [64]u8 = undefined;
-            const slug = std.fmt.bufPrint(&slug_buf, "btc-updown-15m-{d}", .{slot}) catch continue;
+            const slug = std.fmt.bufPrint(&slug_buf, "btc-updown-15m-{d}", .{end_time}) catch continue;
 
             if (self.fetchMarketFromGamma(slug)) |market_info| {
                 const remaining = market_info.end_timestamp - now;
 
+                // 跳过剩余时间不足的市场
                 if (remaining < self.config.min_remaining_minutes * 60) {
+                    log("  市场 {s} 剩余时间不足 ({d}秒)，跳过", .{ slug, remaining });
                     continue;
                 }
 
+                // 跳过已结束的市场
                 if (remaining <= 0) {
                     continue;
                 }
 
+                log("  找到活跃市场: {s}，剩余 {d} 分钟", .{ slug, @divFloor(remaining, 60) });
                 return market_info;
             } else |_| {
                 continue;
