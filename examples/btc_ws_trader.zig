@@ -809,6 +809,7 @@ const HedgeArbitrageBot = struct {
             // 模拟模式
             self.yes_position.addBuy(shares, final_amount);
             self.stats.yes_buys += 1;
+            log("  ✅ [模拟] 买入成功!", .{});
         } else {
             // 实盘下单
             if (self.builder) |*builder| {
@@ -899,6 +900,7 @@ const HedgeArbitrageBot = struct {
             const locked_value = shares_to_buy;
             const profit = locked_value - self.yes_position.total_cost - cost;
             self.stats.total_profit += profit;
+            log("  ✅ [模拟] 对冲成功! 锁定利润: ${d:.2}", .{profit});
             return true;
         } else {
             // 实盘下单 - 买入 NO

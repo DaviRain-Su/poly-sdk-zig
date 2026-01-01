@@ -6,6 +6,61 @@
 
 ## 会话记录
 
+### Session 2026-01-01-002
+
+**日期**: 2026-01-01
+**时长**: ~15 分钟
+**目标**: 修复 ECDSA 签名 EIP-2 合规性问题
+
+#### 问题描述
+
+Polymarket 交易失败，链上报错 "ECDSA: invalid signature 's' value"。
+交易链接: https://polygonscan.com/tx/0x4ffcbd6fb7f22947e22bec2209756e33d98eb8d709dffccf79ea573f64a7afb0
+
+#### 根本原因
+
+EIP-2 规定 ECDSA 签名的 `s` 值必须在曲线阶 `n` 的下半部分（即 `s <= n/2`）。这是为了防止签名延展性攻击。
+SDK 之前的签名代码没有进行 s 值规范化，导致某些签名的 s 值在上半部分，被智能合约拒绝。
+
+#### 修复内容 (src/crypto/ecdsa.zig)
+
+1. **添加 HALF_N 常量** - secp256k1 曲线阶的一半：
+   ```zig
+   const HALF_N: [32]u8 = .{
+       0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+       0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+       0x5D, 0x57, 0x6E, 0x73, 0x57, 0xA4, 0x50, 0x1D,
+       0xDF, 0xE9, 0x2F, 0x46, 0x68, 0x1B, 0x20, 0xA0,
+   };
+   ```
+
+2. **添加 isHighS 函数** - 检查 s 值是否在上半部分：
+   ```zig
+   fn isHighS(s: [32]u8) bool {
+       for (0..32) |i| {
+           if (s[i] > HALF_N[i]) return true;
+           if (s[i] < HALF_N[i]) return false;
+       }
+       return false;
+   }
+   ```
+
+3. **修改 sign 函数** - 自动规范化 s 值：
+   - 如果 `isHighS(s)` 为 true，则计算 `n - s`
+   - 同时翻转恢复 ID (v) 值
+
+4. **添加测试用例**：
+   - `test "EIP-2 s-value normalization"` - 验证签名的 s 值始终在下半部分
+   - `test "isHighS function"` - 测试边界情况
+
+#### 技术细节
+
+- secp256k1 曲线阶: `n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141`
+- 当 `s > n/2` 时，使用 `n - s` 替代，并翻转 `v` 值 (`v ^= 1`)
+- 这样可以确保签名始终是"低 S"形式，符合 EIP-2
+
+---
+
 ### Session 2026-01-01-001
 
 **日期**: 2026-01-01

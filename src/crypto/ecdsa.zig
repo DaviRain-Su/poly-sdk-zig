@@ -195,18 +195,43 @@ pub const PrivateKey = struct {
     ///
     /// 注意：这个方法签名预哈希的消息。对于 EIP-712，
     /// 应该先计算结构化数据的哈希，然后调用此方法。
+    ///
+    /// 签名会自动进行 s 值规范化（EIP-2），确保 s 在曲线阶的下半部分。
     pub fn sign(self: *const Self, message_hash: *const [32]u8) SignError!Signature {
         const sig = self.keypair.signPrehashed(message_hash.*, null) catch |err| switch (err) {
             error.IdentityElement => return SignError.IdentityElement,
             error.NonCanonical => return SignError.NonCanonical,
         };
 
+        // EIP-2: 规范化 s 值 - 确保 s 在曲线阶的下半部分
+        // secp256k1 曲线阶 n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+        // 如果 s > n/2，则使用 n - s
+        const Scalar = Secp256k1.scalar.Scalar;
+        const s_scalar = Scalar.fromBytes(sig.s, .big) catch {
+            return SignError.SigningFailed;
+        };
+
+        var normalized_s = sig.s;
+        var v_flip: u8 = 0;
+
+        // 检查 s 是否在上半部分（s > n/2）
+        if (isHighS(sig.s)) {
+            // s 在上半部分，需要翻转为 n - s
+            const negated = s_scalar.neg();
+            normalized_s = negated.toBytes(.big);
+            v_flip = 1; // 翻转 v 值
+        }
+
         // 计算恢复 ID (v)
-        const v = self.computeRecoveryId(message_hash, &sig);
+        var v = self.computeRecoveryId(message_hash, &sig);
+        // 如果 s 被翻转，v 也需要翻转
+        if (v_flip == 1) {
+            v = v ^ 1;
+        }
 
         return Signature{
             .r = sig.r,
-            .s = sig.s,
+            .s = normalized_s,
             .v = v,
         };
     }
@@ -424,6 +449,26 @@ fn hexCharToNibble(c: u8) ?u4 {
     };
 }
 
+/// secp256k1 曲线阶 n 的一半（用于 EIP-2 s 值规范化）
+/// n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+/// n/2 = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0
+const HALF_N: [32]u8 = .{
+    0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x5D, 0x57, 0x6E, 0x73, 0x57, 0xA4, 0x50, 0x1D,
+    0xDF, 0xE9, 0x2F, 0x46, 0x68, 0x1B, 0x20, 0xA0,
+};
+
+/// 检查 s 值是否在曲线阶的上半部分（s > n/2）
+/// EIP-2 要求 s 必须在下半部分以防止签名延展性
+fn isHighS(s: [32]u8) bool {
+    for (0..32) |i| {
+        if (s[i] > HALF_N[i]) return true;
+        if (s[i] < HALF_N[i]) return false;
+    }
+    return false; // s == n/2，不算 high
+}
+
 // ============================================================================
 // 测试
 // ============================================================================
@@ -560,4 +605,57 @@ test "PrivateKey.generate" {
 
     // 两个随机私钥应该不同
     try std.testing.expect(!std.mem.eql(u8, &pk1.bytes, &pk2.bytes));
+}
+
+test "EIP-2 s-value normalization" {
+    const pk = try PrivateKey.fromHex("0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+
+    // 签名多条消息，验证 s 值始终在曲线阶的下半部分
+    const messages = [_][]const u8{
+        "test message 1",
+        "test message 2",
+        "test message 3",
+        "Hello, Polymarket!",
+        "EIP-2 compliance test",
+    };
+
+    for (messages) |msg| {
+        const message_hash = keccak.keccak256(msg);
+        const signature = try pk.sign(&message_hash);
+
+        // 验证 s 值在下半部分（EIP-2 规范化）
+        try std.testing.expect(!isHighS(signature.s));
+
+        // 验证签名仍然有效
+        const pub_key = pk.publicKey();
+        try pub_key.verify(&message_hash, &signature);
+    }
+}
+
+test "isHighS function" {
+    // 测试明显在上半部分的 s 值
+    const high_s: [32]u8 = .{
+        0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    try std.testing.expect(isHighS(high_s));
+
+    // 测试明显在下半部分的 s 值
+    const low_s: [32]u8 = .{
+        0x7E, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    };
+    try std.testing.expect(!isHighS(low_s));
+
+    // 测试边界情况：刚好在 n/2
+    try std.testing.expect(!isHighS(HALF_N));
+
+    // 测试边界情况：刚好大于 n/2
+    var just_above_half: [32]u8 = HALF_N;
+    just_above_half[31] += 1; // n/2 + 1
+    try std.testing.expect(isHighS(just_above_half));
 }
