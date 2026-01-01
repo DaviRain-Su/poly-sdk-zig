@@ -12,6 +12,7 @@
 | `order_management.zig` | 订单创建、发布和管理 | 是 |
 | `websocket.zig` | WebSocket 实时数据订阅 | 部分 |
 | `btc_hedge_strategy.zig` | BTC 二元期权对冲套利策略 | 是 |
+| `find_btc_markets.zig` | BTC 市场搜索工具 | 否 |
 
 ## 示例说明
 
@@ -74,9 +75,38 @@
 
 **风险提示**：这是真实交易策略，涉及资金风险，仅供教育参考。
 
+### find_btc_markets.zig
+
+BTC 市场搜索工具：
+- 连接 Polymarket API
+- 搜索所有 BTC/Bitcoin 相关市场
+- 显示市场详情、Token ID、价格
+- 输出可直接用于策略配置的信息
+
+**用途**：找到 BTC 相关市场的 Token ID 和 Condition ID，配置到 `.env` 文件中。
+
 ## 运行示例
 
-示例文件是独立的教学文档，主要用于展示 API 用法。它们包含详细的代码说明和注释。
+示例可通过 build.zig 构建和运行：
+
+```bash
+# 构建所有示例
+zig build examples
+
+# 运行特定示例
+zig build run-basic_types           # 基础类型演示
+zig build run-public_api            # 公共 API 演示
+zig build run-authentication        # 认证流程演示
+zig build run-order_management      # 订单管理演示
+zig build run-websocket             # WebSocket 演示
+zig build run-btc_hedge_strategy    # BTC 对冲策略
+zig build run-find_btc_markets      # BTC 市场搜索
+
+# 查看所有可用命令
+zig build --help | grep run-
+```
+
+示例文件也是教学文档，包含详细的代码说明和注释：
 
 ```bash
 # 查看示例代码了解 API 使用方法

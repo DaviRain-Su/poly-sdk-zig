@@ -390,8 +390,10 @@ try ws.run();
 - [x] 完整文档
 - [ ] 性能基准测试
 - [ ] 安全审计
-- [x] 示例应用（5 个示例）
+- [x] 示例应用（7 个示例）
 - [x] CI/CD 配置（GitHub Actions）
+- [x] dotenv 模块（.env 文件加载）
+- [x] WebSocket 内存安全修复
 - [ ] 发布到 Zig 包管理器
 
 ### API 覆盖统计
@@ -444,3 +446,5 @@ try ws.run();
 | 2026-01-01 | v0.6 完成：ContractConfig 类型、CI/CD 配置、示例文件、修复 main.zig (365 tests) |
 | 2026-01-01 | v1.0 准备：WebSocket 示例、examples/README.md 更新、ROADMAP.md 状态同步 |
 | 2026-01-01 | v1.0 增强：BTC 对冲套利策略示例 (btc_hedge_strategy.zig) |
+| 2026-01-01 | v1.0 增强：dotenv 模块 (.env 文件支持)、WebSocket 解析器内存安全修复 |
+| 2026-01-01 | v1.0 增强：find_btc_markets 工具、所有示例添加到 build.zig (375 tests) |

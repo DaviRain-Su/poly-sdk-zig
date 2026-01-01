@@ -182,6 +182,11 @@ pub fn build(b: *std.Build) void {
             .source = "examples/btc_hedge_strategy.zig",
             .description = "Run BTC hedge strategy (binary options arbitrage)",
         },
+        .{
+            .name = "find_btc_markets",
+            .source = "examples/find_btc_markets.zig",
+            .description = "Run BTC market finder (search for BTC prediction markets)",
+        },
     };
 
     // Create a step to build and install all examples
