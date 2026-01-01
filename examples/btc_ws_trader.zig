@@ -107,6 +107,7 @@ const MarketInfo = struct {
     down_token_id_len: usize = 0,
     slug_buf: [64]u8 = undefined,
     slug_len: usize = 0,
+    start_timestamp: i64,
     end_timestamp: i64,
 
     pub fn getConditionId(self: *const MarketInfo) []const u8 {
@@ -264,10 +265,16 @@ fn onBookMessage(msg: BookMessage) void {
         }
     }
 
-    const mid_price = if (real_best_bid > 0 and real_best_ask < 1)
+    // 中间价：始终使用实际值，即使 bid=0 或 ask=1
+    // 只有在完全没有数据时才使用默认值
+    const mid_price = if (real_best_ask > real_best_bid)
         (real_best_bid + real_best_ask) / 2.0
+    else if (real_best_bid > 0)
+        real_best_bid // 只有 bid
+    else if (real_best_ask < 1)
+        real_best_ask // 只有 ask
     else
-        0.5;
+        0.5; // 完全无数据
 
     if (is_up) {
         g_live_book.up_best_bid = real_best_bid;
@@ -476,6 +483,7 @@ const HedgeArbitrageBot = struct {
     /// 执行两步对冲策略
     fn executeStrategy(self: *Self, market: MarketInfo) !void {
         var last_print_time: i64 = 0;
+        var last_warning_time: i64 = 0; // 警告冷却
         var first_price_received = false;
         var use_websocket = false;
 
@@ -501,6 +509,18 @@ const HedgeArbitrageBot = struct {
             if (remaining < 30) {
                 log("  剩余时间不足 30 秒，停止交易", .{});
                 break;
+            }
+
+            // ⚠️ 紧急流动性检查 - 当持仓且没有买家时（每30秒警告一次）
+            if (remaining < 300 and self.yes_position.shares > 0 and g_live_book.up_best_bid <= 0.01 and (now - last_warning_time) >= 30) {
+                last_warning_time = now;
+                log("", .{});
+                log("  ⚠️⚠️⚠️ 紧急警告 ⚠️⚠️⚠️", .{});
+                log("  剩余 {d} 秒，UP bid = {d:.4}，几乎没有买家!", .{ remaining, g_live_book.up_best_bid });
+                log("  持仓 {d:.2} 股，成本 ${d:.2}", .{ self.yes_position.shares, self.yes_position.total_cost });
+                log("  按当前 bid 估值: ${d:.2}", .{g_live_book.up_best_bid * self.yes_position.shares});
+                log("  ⚠️ 考虑手动平仓或等待市场结算!", .{});
+                log("", .{});
             }
 
             // 如果使用 WebSocket，只需偶尔同步一次；否则每次轮询
@@ -699,7 +719,11 @@ const HedgeArbitrageBot = struct {
                 const price_str = try std.fmt.allocPrint(self.allocator, "{d:.2}", .{buy_price});
                 defer self.allocator.free(price_str);
                 // 使用整数股数（向上取整确保金额足够）
-                const int_shares: u64 = @intFromFloat(@ceil(shares));
+                // Polymarket CLOB 最小订单为 5 股
+                var int_shares: u64 = @intFromFloat(@ceil(shares));
+                if (int_shares < 5) {
+                    int_shares = 5;
+                }
                 const size_str = try std.fmt.allocPrint(self.allocator, "{d}", .{int_shares});
                 defer self.allocator.free(size_str);
 
@@ -745,6 +769,12 @@ const HedgeArbitrageBot = struct {
         const int_shares: u64 = @intFromFloat(@floor(self.yes_position.shares));
         if (int_shares == 0) {
             log("  ⚠️ 没有足够的 YES 持仓进行对冲", .{});
+            return false;
+        }
+
+        // Polymarket CLOB 最小订单为 5 股
+        if (int_shares < 5) {
+            log("  ⚠️ YES 持仓 {d} 股 < 5 股，无法对冲（最低 5 股）", .{int_shares});
             return false;
         }
 
@@ -875,15 +905,24 @@ const HedgeArbitrageBot = struct {
         // 更新全局状态
         g_live_book.up_best_bid = up_best_bid;
         g_live_book.up_best_ask = up_best_ask;
-        g_live_book.up_mid_price = if (up_best_bid > 0 and up_best_ask < 1)
+        // 中间价：始终使用实际值
+        g_live_book.up_mid_price = if (up_best_ask > up_best_bid)
             (up_best_bid + up_best_ask) / 2.0
+        else if (up_best_bid > 0)
+            up_best_bid
+        else if (up_best_ask < 1)
+            up_best_ask
         else
             0.5;
 
         g_live_book.down_best_bid = down_best_bid;
         g_live_book.down_best_ask = down_best_ask;
-        g_live_book.down_mid_price = if (down_best_bid > 0 and down_best_ask < 1)
+        g_live_book.down_mid_price = if (down_best_ask > down_best_bid)
             (down_best_bid + down_best_ask) / 2.0
+        else if (down_best_bid > 0)
+            down_best_bid
+        else if (down_best_ask < 1)
+            down_best_ask
         else
             0.5;
 
@@ -1009,6 +1048,18 @@ const HedgeArbitrageBot = struct {
         });
         std.debug.print("└─────────────────────────────────────┴─────────────────────────────────────┘\n", .{});
 
+        // ⚠️ 流动性危机警告 - 当持有仓位但 bid=0 时
+        if (self.yes_position.shares > 0 and g_live_book.up_best_bid <= 0.001) {
+            std.debug.print("  🚨 严重警告: UP 没有买家 (bid={d:.4})! 仓位可能无法卖出!\n", .{g_live_book.up_best_bid});
+            std.debug.print("  💀 按 bid 价估值: ${d:.2} (成本 ${d:.2})\n", .{
+                g_live_book.up_best_bid * self.yes_position.shares,
+                self.yes_position.total_cost,
+            });
+        }
+        if (self.no_position.shares > 0 and g_live_book.down_best_bid <= 0.001) {
+            std.debug.print("  🚨 严重警告: DOWN 没有买家 (bid={d:.4})! 仓位可能无法卖出!\n", .{g_live_book.down_best_bid});
+        }
+
         // 市场健康状态
         if (up_spread > 0.5 or down_spread > 0.5) {
             std.debug.print("  ⚠️  警告: 价差过大! 流动性不足\n", .{});
@@ -1067,6 +1118,14 @@ const HedgeArbitrageBot = struct {
 
             if (self.fetchMarketFromGamma(slug)) |market_info| {
                 const remaining = market_info.end_timestamp - now;
+                const started = now >= market_info.start_timestamp;
+
+                // 检查市场是否已开始
+                if (!started) {
+                    const wait = market_info.start_timestamp - now;
+                    log("  市场 {s} 还未开始，等待 {d} 秒", .{ slug, wait });
+                    continue;
+                }
 
                 if (remaining < self.config.min_remaining_minutes * 60) {
                     log("  市场 {s} 剩余时间不足 ({d}秒)，跳过", .{ slug, remaining });
@@ -1143,6 +1202,7 @@ const HedgeArbitrageBot = struct {
         const end_timestamp = start_timestamp + 900;
 
         var info = MarketInfo{
+            .start_timestamp = start_timestamp,
             .end_timestamp = end_timestamp,
         };
 

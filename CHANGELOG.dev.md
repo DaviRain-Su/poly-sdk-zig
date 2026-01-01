@@ -73,10 +73,39 @@ $ zig build test
 | `build.zig` | 修改 | 添加 smart_auto_trade 示例 |
 | `examples/btc_ws_trader.zig` | 修改 | 使用 bid 价计算浮盈 |
 
+##### 5. 同步安全警告到 smart_auto_trade.zig
+
+将 btc_ws_trader.zig 中的流动性危机警告和紧急退出提醒同步到 smart_auto_trade.zig：
+
+**流动性危机警告** (当持仓但 bid ≤ 0.001):
+```zig
+if (self.position.up_shares > 0 and g_live_book.up_best_bid <= 0.001) {
+    std.debug.print("🚨 严重警告: UP 没有买家 (bid={d:.4})! 仓位可能无法卖出!\n", ...);
+}
+if (self.position.down_shares > 0 and g_live_book.down_best_bid <= 0.001) {
+    std.debug.print("🚨 严重警告: DOWN 没有买家 (bid={d:.4})! 仓位可能无法卖出!\n", ...);
+}
+```
+
+**紧急退出提醒** (剩余 < 5分钟且 bid ≤ 0.01):
+```zig
+if (remaining < 300) {
+    if (self.position.up_shares > 0 and g_live_book.up_best_bid <= 0.01) {
+        log("⚠️⚠️⚠️ 紧急警告: 剩余 {d} 秒，UP bid = {d:.4}，几乎没有买家!", ...);
+    }
+    // DOWN 同理
+}
+```
+
+**差异说明**:
+- btc_ws_trader.zig 只交易 UP 方向
+- smart_auto_trade.zig 同时交易 UP 和 DOWN 两个方向，因此需要检查两边的流动性
+
 #### 下一步
 
 - [x] 更新 examples/README.md
 - [x] 更新 ROADMAP.md 变更日志
+- [x] 同步流动性警告到 smart_auto_trade.zig
 
 ---
 
