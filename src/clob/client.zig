@@ -388,7 +388,10 @@ pub const ClobClient = struct {
         return try body.toOwnedSlice(self.allocator);
     }
 
-    /// Perform authenticated GET request
+    /// Perform authenticated GET request using curl (handles compression automatically)
+    ///
+    /// 注意：L2 签名只使用路径部分（不含查询参数），这与 Python 官方客户端一致。
+    /// 例如：路径 "/balance-allowance?asset_type=COLLATERAL" 签名时只用 "/balance-allowance"
     fn doAuthGet(self: *ClobClient, path: []const u8) ![]u8 {
         const creds = self.api_creds orelse return Error.Unauthorized;
         const wallet = self.wallet orelse return Error.Unauthorized;
@@ -396,51 +399,72 @@ pub const ClobClient = struct {
         const url = try self.buildUrl(path);
         defer self.allocator.free(url);
 
+        // 提取基础路径（不含查询参数）用于签名
+        // 查找 '?' 的位置，如果存在则截取前面的部分
+        const sign_path = if (std.mem.indexOf(u8, path, "?")) |idx|
+            path[0..idx]
+        else
+            path;
+
         // Generate L2 auth header (需要钱包地址)
         const l2 = L2Auth.init(creds);
         const address = wallet.getAddressChecksumHex();
         const auth_header = l2.generateHeader(.{
             .method = "GET",
-            .path = path,
+            .path = sign_path, // 使用不含查询参数的路径签名
             .body = null,
             .address = &address,
         }) catch return Error.Unauthorized;
 
-        const poly_headers = auth_header.toHttpHeaders();
+        // 构建 curl 头部参数
+        var h_addr_buf: [100]u8 = undefined;
+        var h_key_buf: [100]u8 = undefined;
+        var h_sig_buf: [100]u8 = undefined;
+        var h_ts_buf: [100]u8 = undefined;
+        var h_pass_buf: [200]u8 = undefined;
 
-        const uri = std.Uri.parse(url) catch return Error.BadRequest;
+        const h_addr = std.fmt.bufPrint(&h_addr_buf, "POLY_ADDRESS: {s}", .{auth_header.getAddress()}) catch return Error.BadRequest;
+        const h_key = std.fmt.bufPrint(&h_key_buf, "POLY_API_KEY: {s}", .{auth_header.getApiKey()}) catch return Error.BadRequest;
+        const h_sig = std.fmt.bufPrint(&h_sig_buf, "POLY_SIGNATURE: {s}", .{auth_header.getSignature()}) catch return Error.BadRequest;
+        const h_ts = std.fmt.bufPrint(&h_ts_buf, "POLY_TIMESTAMP: {s}", .{auth_header.getTimestamp()}) catch return Error.BadRequest;
+        const h_pass = std.fmt.bufPrint(&h_pass_buf, "POLY_PASSPHRASE: {s}", .{auth_header.getPassphrase()}) catch return Error.BadRequest;
 
-        var req = self.http_client.request(.GET, uri, .{
-            .extra_headers = &[_]std.http.Header{
-                .{ .name = "Accept", .value = "application/json" },
-                .{ .name = "User-Agent", .value = "poly-sdk-zig/0.1.0" },
-                .{ .name = "Content-Type", .value = "application/json" },
-                poly_headers[0],
-                poly_headers[1],
-                poly_headers[2],
-                poly_headers[3],
-                poly_headers[4],
-            },
-        }) catch |err| {
-            return switch (err) {
-                error.ConnectionRefused => Error.ConnectionRefused,
-                error.ConnectionResetByPeer => Error.ConnectionReset,
-                error.ConnectionTimedOut => Error.Timeout,
-                error.NetworkUnreachable => Error.ConnectionFailed,
-                error.UnknownHostName => Error.DnsResolutionFailed,
-                else => Error.ConnectionFailed,
-            };
+        // 使用 curl 发送请求（自动处理 gzip 压缩）
+        const argv: []const []const u8 = &.{
+            "curl", "-s",   "-f",
+            "-H",   h_addr, "-H",
+            h_key,  "-H",   h_sig,
+            "-H",   h_ts,   "-H",
+            h_pass, url,
         };
-        defer req.deinit();
 
-        req.sendBodiless() catch return Error.ConnectionFailed;
-        var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
+        var child = std.process.Child.init(argv, self.allocator);
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
 
-        if (errorFromStatus(response.head.status)) |err| {
-            return err;
+        try child.spawn();
+
+        const stdout = child.stdout.?;
+        var read_buffer: [8192]u8 = undefined;
+        var body = try std.ArrayList(u8).initCapacity(self.allocator, 1024 * 1024);
+        errdefer body.deinit(self.allocator);
+
+        while (true) {
+            const n = stdout.read(&read_buffer) catch {
+                return Error.ConnectionFailed;
+            };
+            if (n == 0) break;
+            try body.appendSlice(self.allocator, read_buffer[0..n]);
         }
 
-        return readResponseBody(self.allocator, &response) catch return Error.ConnectionFailed;
+        const result = child.wait() catch {
+            return Error.ConnectionFailed;
+        };
+        if (result != .Exited or result.Exited != 0) {
+            return Error.ConnectionFailed;
+        }
+
+        return try body.toOwnedSlice(self.allocator);
     }
 
     /// Perform authenticated POST request
@@ -1455,7 +1479,8 @@ pub const ClobClient = struct {
     /// Get balance and allowance - GET /balance-allowance
     ///
     /// Requires L2 authentication.
-    pub fn getBalanceAllowance(self: *ClobClient, params: types.BalanceAllowanceParams) !types.BalanceAllowanceResponse {
+    /// 返回的 Parsed 需要调用者 deinit() 释放内存。
+    pub fn getBalanceAllowance(self: *ClobClient, params: types.BalanceAllowanceParams) !std.json.Parsed(types.BalanceAllowanceResponse) {
         var path_buf: [512]u8 = undefined;
         var path_len: usize = 0;
 
@@ -1484,12 +1509,10 @@ pub const ClobClient = struct {
         const response_body = try self.doAuthGet(path);
         defer self.allocator.free(response_body);
 
-        const parsed = std.json.parseFromSlice(types.BalanceAllowanceResponse, self.allocator, response_body, .{
+        return std.json.parseFromSlice(types.BalanceAllowanceResponse, self.allocator, response_body, .{
             .ignore_unknown_fields = true,
-        }) catch return Error.InvalidJson;
-        defer parsed.deinit();
-
-        return parsed.value;
+            .allocate = .alloc_always,
+        }) catch Error.InvalidJson;
     }
 
     /// Get notifications - GET /notifications

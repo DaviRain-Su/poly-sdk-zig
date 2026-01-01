@@ -232,6 +232,11 @@ pub fn build(b: *std.Build) void {
             .source = "examples/simple_order_test.zig",
             .description = "Simple order test with detailed error logging",
         },
+        .{
+            .name = "check_balance",
+            .source = "examples/check_balance.zig",
+            .description = "Check wallet balance and allowance",
+        },
     };
 
     // Create a step to build and install all examples
