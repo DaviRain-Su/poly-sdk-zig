@@ -324,23 +324,22 @@ const OrderBookMonitor = struct {
     }
 
     /// 寻找 BTC 15m 市场 (使用 Gamma API)
-    /// 注意: 市场 slug 格式是 btc-updown-15m-{结束时间戳}
+    /// 市场 slug 格式是 btc-updown-15m-{开始时间戳}
     pub fn findBtc15mMarket(self: *Self) !?MarketInfo {
         const now = std.time.timestamp();
 
         // 计算时间戳
         const interval: i64 = 900; // 15 分钟
-        const current_slot_start = @divFloor(now, interval) * interval;
-        const current_market_end = current_slot_start + interval; // 正在进行的市场
-        const next_market_end = current_slot_start + 2 * interval; // 下一个市场
+        const current_slot = @divFloor(now, interval) * interval;
+        const next_slot = current_slot + interval;
 
         // 优先选择正在进行的市场
-        const slots = [_]i64{ current_market_end, next_market_end };
+        const slots = [_]i64{ current_slot, next_slot };
 
-        for (slots) |end_time| {
-            // 构建 market slug: btc-updown-15m-{结束时间戳}
+        for (slots) |slot| {
+            // 构建 market slug: btc-updown-15m-{开始时间戳}
             var slug_buf: [64]u8 = undefined;
-            const slug = std.fmt.bufPrint(&slug_buf, "btc-updown-15m-{d}", .{end_time}) catch continue;
+            const slug = std.fmt.bufPrint(&slug_buf, "btc-updown-15m-{d}", .{slot}) catch continue;
 
             // 使用 Gamma API 查询市场
             if (self.fetchMarketFromGamma(slug)) |market_info| {
@@ -431,9 +430,10 @@ const OrderBookMonitor = struct {
         const condition_end = std.mem.indexOf(u8, condition_data, "\"") orelse return error.ParseError;
         const condition_id = condition_data[0..condition_end];
 
-        // 从 slug 解析时间戳
-        const end_timestamp = parseTimestampFromSlug(slug);
-        if (end_timestamp == 0) return error.InvalidTimestamp;
+        // 从 slug 解析开始时间戳，然后计算结束时间
+        const start_timestamp = parseTimestampFromSlug(slug);
+        if (start_timestamp == 0) return error.InvalidTimestamp;
+        const end_timestamp = start_timestamp + 900; // 15分钟后结束
 
         const now = std.time.timestamp();
         const remaining = end_timestamp - now;
