@@ -473,7 +473,9 @@ const SmartTrader = struct {
             // 执行信号
             for (signals) |signal_opt| {
                 if (signal_opt) |signal| {
-                    try self.executeSignal(market, signal);
+                    self.executeSignal(market, signal) catch |err| {
+                        log("  信号执行失败: {}", .{err});
+                    };
                 }
             }
 
@@ -806,10 +808,18 @@ const SmartTrader = struct {
                 .neg_risk = false,
             });
 
-            const response = try self.client.postOrder(&order, .GTC);
+            const response = self.client.postOrder(&order, .GTC) catch |err| {
+                log("  ❌ 下单请求失败: {}", .{err});
+                log("  提示: 如果是 Unauthorized 错误，请检查:", .{});
+                log("     1. API Key 是否正确 (POLY_API_KEY)", .{});
+                log("     2. API Secret 是否正确 (POLY_API_SECRET)", .{});
+                log("     3. Passphrase 是否正确 (POLY_API_PASSPHRASE)", .{});
+                log("     4. 或者重新运行让系统自动获取 API 凭证", .{});
+                return;
+            };
 
             if (response.success) {
-                log("  订单成功! ID: {s}", .{response.orderID orelse "N/A"});
+                log("  ✅ 订单成功! ID: {s}", .{response.orderID orelse "N/A"});
                 if (signal.token == .up) {
                     self.position.updateUp(signal.size, signal.price);
                 } else {
@@ -817,7 +827,7 @@ const SmartTrader = struct {
                 }
                 self.stats.total_trades += 1;
             } else {
-                log("  订单失败: {s}", .{response.errorMsg orelse "未知错误"});
+                log("  ❌ 订单被拒绝: {s}", .{response.errorMsg orelse "未知错误"});
             }
         }
     }
@@ -1221,7 +1231,13 @@ pub fn main() !void {
                 return err;
             };
 
+            const key = creds.?.getApiKey();
             std.debug.print("API 凭证获取成功!\n", .{});
+            std.debug.print("  API Key: {s}...{s} (长度: {d})\n", .{
+                key[0..@min(8, key.len)],
+                if (key.len > 8) key[key.len - 4 ..] else "",
+                key.len,
+            });
             client.setApiCreds(&creds.?);
         }
     } else {

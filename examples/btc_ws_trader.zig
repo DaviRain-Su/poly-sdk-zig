@@ -634,7 +634,9 @@ const WsTrader = struct {
                 self.position.up_cost += self.config.order_size;
                 self.stats.total_trades += 1;
             } else {
-                try self.executeBuy(market, .up, g_live_book.up_best_ask);
+                self.executeBuy(market, .up, g_live_book.up_best_ask) catch |err| {
+                    log("  买入 UP 失败: {}", .{err});
+                };
             }
         } else if (up_prob <= (1.0 - self.config.prob_bias_threshold)) {
             log("  信号: 强烈看跌 (UP={d:.1}%)", .{up_prob * 100});
@@ -647,7 +649,9 @@ const WsTrader = struct {
                 self.position.down_cost += self.config.order_size;
                 self.stats.total_trades += 1;
             } else {
-                try self.executeBuy(market, .down, g_live_book.down_best_ask);
+                self.executeBuy(market, .down, g_live_book.down_best_ask) catch |err| {
+                    log("  买入 DOWN 失败: {}", .{err});
+                };
             }
         }
     }
@@ -673,10 +677,14 @@ const WsTrader = struct {
                 .neg_risk = false,
             });
 
-            const response = try self.client.postOrder(&order, .GTC);
+            const response = self.client.postOrder(&order, .GTC) catch |err| {
+                log("  ❌ 下单请求失败: {}", .{err});
+                log("  提示: 如果是 Unauthorized 错误，请检查 API 凭证配置", .{});
+                return;
+            };
 
             if (response.success) {
-                log("  订单成功! ID: {s}", .{response.orderID orelse "N/A"});
+                log("  ✅ 订单成功! ID: {s}", .{response.orderID orelse "N/A"});
                 if (token == .up) {
                     self.position.up_shares += size;
                     self.position.up_cost += self.config.order_size;
@@ -686,7 +694,7 @@ const WsTrader = struct {
                 }
                 self.stats.total_trades += 1;
             } else {
-                log("  订单失败: {s}", .{response.errorMsg orelse "未知错误"});
+                log("  ❌ 订单被拒绝: {s}", .{response.errorMsg orelse "未知错误"});
             }
         }
     }
