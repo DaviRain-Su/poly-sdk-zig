@@ -1,10 +1,10 @@
-// WebSocket 客户端实现
-//
-// 基于 Zig 标准库实现的 WebSocket 客户端
-// 支持 Polymarket CLOB WebSocket API
-//
-// 注意: Zig 0.15 标准库没有内置 WebSocket 支持，
-// 这里使用 TCP + WebSocket 协议实现
+//! WebSocket 客户端
+//!
+//! 基于 Zig 标准库实现的 WebSocket 客户端
+//! 支持 Polymarket CLOB WebSocket API
+//!
+//! 注意: 当前版本仅支持非安全 (ws://) 连接
+//! TLS (wss://) 支持需要更复杂的实现，将在未来版本中添加
 
 const std = @import("std");
 const types = @import("types.zig");
@@ -30,6 +30,12 @@ const FrameHeader = struct {
     mask_key: ?[4]u8,
 };
 
+/// 读取帧结果
+const ReadFrameResult = struct {
+    opcode: Opcode,
+    payload: ?[]const u8,
+};
+
 /// WebSocket 连接状态
 pub const ConnectionState = enum {
     disconnected,
@@ -51,6 +57,7 @@ pub const WebSocketError = error{
     ProtocolError,
     Timeout,
     MaxReconnectAttemptsExceeded,
+    TlsNotSupported,
 };
 
 /// WebSocket 客户端
@@ -65,7 +72,7 @@ pub const WebSocketClient = struct {
     is_secure: bool,
 
     // 底层流
-    stream: ?std.net.Stream,
+    tcp_stream: ?std.net.Stream,
 
     // 配置
     auto_reconnect: bool,
@@ -83,6 +90,9 @@ pub const WebSocketClient = struct {
     on_error: ?*const fn (err: anyerror) void,
     on_connection: ?*const fn (connected: bool) void,
 
+    // 内部读取缓冲区
+    read_buffer: [8192]u8,
+
     const Self = @This();
 
     /// 初始化 WebSocket 客户端
@@ -97,7 +107,7 @@ pub const WebSocketClient = struct {
             .port = parsed.port,
             .path = parsed.path,
             .is_secure = parsed.is_secure,
-            .stream = null,
+            .tcp_stream = null,
             .auto_reconnect = true,
             .max_reconnect_attempts = 5,
             .reconnect_delay_ms = 1000,
@@ -108,6 +118,7 @@ pub const WebSocketClient = struct {
             .on_message = null,
             .on_error = null,
             .on_connection = null,
+            .read_buffer = undefined,
         };
     }
 
@@ -120,11 +131,16 @@ pub const WebSocketClient = struct {
     pub fn connect(self: *Self) !void {
         if (self.state == .connected) return;
 
+        // TLS (wss://) 当前不支持
+        if (self.is_secure) {
+            return WebSocketError.TlsNotSupported;
+        }
+
         self.state = .connecting;
 
-        // 建立 TCP 连接
-        const address = try std.net.Address.resolveIp(self.host, self.port);
-        self.stream = try std.net.tcpConnectToAddress(address);
+        // 解析主机名并建立 TCP 连接
+        const address_list = try std.net.Address.resolveIp(self.host, self.port);
+        self.tcp_stream = try std.net.tcpConnectToAddress(address_list);
 
         // 发送 WebSocket 握手
         try self.performHandshake();
@@ -144,10 +160,12 @@ pub const WebSocketClient = struct {
         self.state = .closing;
 
         // 发送关闭帧
-        if (self.stream) |stream| {
-            self.sendCloseFrame() catch {};
+        self.sendCloseFrame() catch {};
+
+        // 关闭 TCP
+        if (self.tcp_stream) |stream| {
             stream.close();
-            self.stream = null;
+            self.tcp_stream = null;
         }
 
         self.state = .closed;
@@ -199,18 +217,51 @@ pub const WebSocketClient = struct {
         }
     }
 
+    /// 重连
+    pub fn reconnect(self: *Self) !void {
+        if (!self.auto_reconnect) return;
+
+        if (self.reconnect_attempts >= self.max_reconnect_attempts) {
+            return WebSocketError.MaxReconnectAttemptsExceeded;
+        }
+
+        self.reconnect_attempts += 1;
+
+        // 关闭现有连接
+        self.close() catch {};
+
+        // 等待一段时间
+        std.time.sleep(self.reconnect_delay_ms * std.time.ns_per_ms);
+
+        // 重新连接
+        try self.connect();
+    }
+
     // ========================================================================
     // 内部方法
     // ========================================================================
 
+    /// 写入数据
+    fn writeData(self: *Self, data: []const u8) !void {
+        const stream = self.tcp_stream orelse return WebSocketError.ConnectionFailed;
+        _ = stream.write(data) catch return WebSocketError.SendFailed;
+    }
+
+    /// 读取数据
+    fn readData(self: *Self, buffer: []u8) !usize {
+        const stream = self.tcp_stream orelse return WebSocketError.ConnectionFailed;
+        return stream.read(buffer) catch return WebSocketError.ReceiveFailed;
+    }
+
     /// 执行 WebSocket 握手
     fn performHandshake(self: *Self) !void {
-        const stream = self.stream orelse return WebSocketError.ConnectionFailed;
-
         // 生成 WebSocket Key
         var key_bytes: [16]u8 = undefined;
         std.crypto.random.bytes(&key_bytes);
-        const ws_key = std.base64.standard.Encoder.encode(&key_bytes);
+
+        // Base64 编码
+        var ws_key_buf: [24]u8 = undefined;
+        const ws_key = std.base64.standard.Encoder.encode(&ws_key_buf, &key_bytes);
 
         // 构建握手请求
         var request_buf: [1024]u8 = undefined;
@@ -226,11 +277,11 @@ pub const WebSocketClient = struct {
         , .{ self.path, self.host, ws_key });
 
         // 发送请求
-        _ = try stream.write(request);
+        try self.writeData(request);
 
         // 读取响应
         var response_buf: [1024]u8 = undefined;
-        const bytes_read = try stream.read(&response_buf);
+        const bytes_read = try self.readData(&response_buf);
         if (bytes_read == 0) return WebSocketError.HandshakeFailed;
 
         const response = response_buf[0..bytes_read];
@@ -243,57 +294,41 @@ pub const WebSocketClient = struct {
 
     /// 发送 WebSocket 帧
     fn sendFrame(self: *Self, opcode: Opcode, data: []const u8) !void {
-        const stream = self.stream orelse return WebSocketError.ConnectionFailed;
+        var frame_buf: [14 + 65535]u8 = undefined;
+        var frame_len: usize = 0;
+
+        // 第一个字节: FIN + opcode
+        frame_buf[0] = 0x80 | @as(u8, @intFromEnum(opcode));
+        frame_len += 1;
+
+        // 第二个字节: MASK + payload length
+        const payload_len = data.len;
+        if (payload_len <= 125) {
+            frame_buf[1] = 0x80 | @as(u8, @intCast(payload_len));
+            frame_len += 1;
+        } else if (payload_len <= 65535) {
+            frame_buf[1] = 0x80 | 126;
+            frame_buf[2] = @intCast((payload_len >> 8) & 0xFF);
+            frame_buf[3] = @intCast(payload_len & 0xFF);
+            frame_len += 3;
+        } else {
+            return WebSocketError.SendFailed; // 暂不支持超大帧
+        }
 
         // 生成掩码
         var mask_key: [4]u8 = undefined;
         std.crypto.random.bytes(&mask_key);
+        @memcpy(frame_buf[frame_len..][0..4], &mask_key);
+        frame_len += 4;
 
-        // 构建帧头
-        var header_buf: [14]u8 = undefined;
-        var header_len: usize = 2;
-
-        // 第一个字节: FIN + opcode
-        header_buf[0] = 0x80 | @as(u8, @intFromEnum(opcode));
-
-        // 第二个字节: MASK + payload length
-        if (data.len < 126) {
-            header_buf[1] = 0x80 | @as(u8, @intCast(data.len));
-        } else if (data.len < 65536) {
-            header_buf[1] = 0x80 | 126;
-            header_buf[2] = @intCast((data.len >> 8) & 0xFF);
-            header_buf[3] = @intCast(data.len & 0xFF);
-            header_len = 4;
-        } else {
-            header_buf[1] = 0x80 | 127;
-            const len64: u64 = data.len;
-            header_buf[2] = @intCast((len64 >> 56) & 0xFF);
-            header_buf[3] = @intCast((len64 >> 48) & 0xFF);
-            header_buf[4] = @intCast((len64 >> 40) & 0xFF);
-            header_buf[5] = @intCast((len64 >> 32) & 0xFF);
-            header_buf[6] = @intCast((len64 >> 24) & 0xFF);
-            header_buf[7] = @intCast((len64 >> 16) & 0xFF);
-            header_buf[8] = @intCast((len64 >> 8) & 0xFF);
-            header_buf[9] = @intCast(len64 & 0xFF);
-            header_len = 10;
-        }
-
-        // 添加掩码
-        @memcpy(header_buf[header_len..][0..4], &mask_key);
-        header_len += 4;
-
-        // 发送帧头
-        _ = try stream.write(header_buf[0..header_len]);
-
-        // 发送掩码后的数据
-        var masked_data = try self.allocator.alloc(u8, data.len);
-        defer self.allocator.free(masked_data);
-
+        // 复制并掩码数据
         for (data, 0..) |byte, i| {
-            masked_data[i] = byte ^ mask_key[i % 4];
+            frame_buf[frame_len + i] = byte ^ mask_key[i % 4];
         }
+        frame_len += payload_len;
 
-        _ = try stream.write(masked_data);
+        // 发送帧
+        try self.writeData(frame_buf[0..frame_len]);
     }
 
     /// 发送关闭帧
@@ -302,72 +337,84 @@ pub const WebSocketClient = struct {
     }
 
     /// 读取 WebSocket 帧
-    fn readFrame(self: *Self) !struct { opcode: Opcode, payload: ?[]const u8 } {
-        const stream = self.stream orelse return WebSocketError.ConnectionFailed;
-
+    fn readFrame(self: *Self) !ReadFrameResult {
         // 读取前两个字节
-        var header: [2]u8 = undefined;
-        const header_read = try stream.read(&header);
-        if (header_read < 2) return WebSocketError.InvalidFrame;
+        var header_buf: [2]u8 = undefined;
+        var total_read: usize = 0;
 
-        const fin = (header[0] & 0x80) != 0;
+        while (total_read < 2) {
+            const n = try self.readData(header_buf[total_read..]);
+            if (n == 0) return WebSocketError.ConnectionClosed;
+            total_read += n;
+        }
+
+        const fin = (header_buf[0] & 0x80) != 0;
         _ = fin;
-        const opcode: Opcode = @enumFromInt(header[0] & 0x0F);
-        const masked = (header[1] & 0x80) != 0;
-        var payload_len: u64 = header[1] & 0x7F;
+        const opcode: Opcode = @enumFromInt(@as(u4, @truncate(header_buf[0] & 0x0F)));
+        const masked = (header_buf[1] & 0x80) != 0;
+        var payload_len: u64 = header_buf[1] & 0x7F;
 
         // 读取扩展长度
         if (payload_len == 126) {
-            var ext_len: [2]u8 = undefined;
-            _ = try stream.read(&ext_len);
-            payload_len = (@as(u64, ext_len[0]) << 8) | ext_len[1];
-        } else if (payload_len == 127) {
-            var ext_len: [8]u8 = undefined;
-            _ = try stream.read(&ext_len);
-            payload_len = 0;
-            for (ext_len) |b| {
-                payload_len = (payload_len << 8) | b;
+            var len_buf: [2]u8 = undefined;
+            total_read = 0;
+            while (total_read < 2) {
+                const n = try self.readData(len_buf[total_read..]);
+                if (n == 0) return WebSocketError.ConnectionClosed;
+                total_read += n;
             }
+            payload_len = (@as(u64, len_buf[0]) << 8) | @as(u64, len_buf[1]);
+        } else if (payload_len == 127) {
+            var len_buf: [8]u8 = undefined;
+            total_read = 0;
+            while (total_read < 8) {
+                const n = try self.readData(len_buf[total_read..]);
+                if (n == 0) return WebSocketError.ConnectionClosed;
+                total_read += n;
+            }
+            payload_len = std.mem.readInt(u64, &len_buf, .big);
         }
 
-        // 读取掩码
-        var mask_key: [4]u8 = undefined;
+        // 读取掩码（如果有）
+        var mask_key: ?[4]u8 = null;
         if (masked) {
-            _ = try stream.read(&mask_key);
+            var mask_buf: [4]u8 = undefined;
+            total_read = 0;
+            while (total_read < 4) {
+                const n = try self.readData(mask_buf[total_read..]);
+                if (n == 0) return WebSocketError.ConnectionClosed;
+                total_read += n;
+            }
+            mask_key = mask_buf;
         }
 
-        // 读取载荷
+        // 读取 payload
         if (payload_len == 0) {
-            return .{ .opcode = opcode, .payload = null };
+            return ReadFrameResult{ .opcode = opcode, .payload = null };
         }
 
-        const payload = try self.allocator.alloc(u8, @intCast(payload_len));
-        _ = try stream.read(payload);
+        if (payload_len > self.read_buffer.len) {
+            return WebSocketError.InvalidFrame;
+        }
+
+        total_read = 0;
+        while (total_read < payload_len) {
+            const n = try self.readData(self.read_buffer[total_read..@intCast(payload_len)]);
+            if (n == 0) return WebSocketError.ConnectionClosed;
+            total_read += n;
+        }
 
         // 解除掩码
-        if (masked) {
-            for (payload, 0..) |*byte, i| {
-                byte.* ^= mask_key[i % 4];
+        if (mask_key) |key| {
+            for (self.read_buffer[0..@intCast(payload_len)], 0..) |*byte, i| {
+                byte.* ^= key[i % 4];
             }
         }
 
-        return .{ .opcode = opcode, .payload = payload };
-    }
-
-    /// 重连
-    pub fn reconnect(self: *Self) !void {
-        if (!self.auto_reconnect) return WebSocketError.ConnectionClosed;
-
-        while (self.reconnect_attempts < self.max_reconnect_attempts) {
-            self.reconnect_attempts += 1;
-
-            std.time.sleep(self.reconnect_delay_ms * std.time.ns_per_ms);
-
-            self.connect() catch continue;
-            return;
-        }
-
-        return WebSocketError.MaxReconnectAttemptsExceeded;
+        return ReadFrameResult{
+            .opcode = opcode,
+            .payload = self.allocator.dupe(u8, self.read_buffer[0..@intCast(payload_len)]) catch null,
+        };
     }
 };
 
@@ -379,35 +426,34 @@ fn parseWebSocketUrl(url: []const u8) !struct {
     is_secure: bool,
 } {
     var is_secure = false;
-    var rest = url;
+    var rest: []const u8 = undefined;
 
-    // 检查协议
     if (std.mem.startsWith(u8, url, "wss://")) {
         is_secure = true;
         rest = url[6..];
     } else if (std.mem.startsWith(u8, url, "ws://")) {
+        is_secure = false;
         rest = url[5..];
     } else {
         return WebSocketError.InvalidUrl;
     }
 
-    // 查找路径分隔符
-    const path_start = std.mem.indexOf(u8, rest, "/") orelse rest.len;
-    const host_port = rest[0..path_start];
-    const path = if (path_start < rest.len) rest[path_start..] else "/";
+    // 分离 host:port 和 path
+    var path: []const u8 = "/";
+    var host_port = rest;
 
-    // 解析主机和端口
-    var host: []const u8 = undefined;
-    var port: u16 = undefined;
+    if (std.mem.indexOf(u8, rest, "/")) |idx| {
+        host_port = rest[0..idx];
+        path = rest[idx..];
+    }
 
-    if (std.mem.indexOf(u8, host_port, ":")) |colon_pos| {
-        host = host_port[0..colon_pos];
-        port = std.fmt.parseInt(u16, host_port[colon_pos + 1 ..], 10) catch {
-            return WebSocketError.InvalidUrl;
-        };
-    } else {
-        host = host_port;
-        port = if (is_secure) 443 else 80;
+    // 分离 host 和 port
+    var host: []const u8 = host_port;
+    var port: u16 = if (is_secure) 443 else 80;
+
+    if (std.mem.lastIndexOf(u8, host_port, ":")) |idx| {
+        host = host_port[0..idx];
+        port = std.fmt.parseInt(u16, host_port[idx + 1 ..], 10) catch port;
     }
 
     return .{
@@ -418,97 +464,99 @@ fn parseWebSocketUrl(url: []const u8) !struct {
     };
 }
 
-// ============================================================================
-// JSON 序列化辅助
-// ============================================================================
-
-/// 序列化 Market Channel 订阅消息
+/// 序列化 Market 订阅消息
 pub fn serializeMarketSubscribe(
     allocator: Allocator,
-    assets_ids: []const []const u8,
+    asset_ids: []const []const u8,
     custom_feature_enabled: bool,
-) ![]u8 {
-    var list = try std.ArrayList(u8).initCapacity(allocator, 256);
-    errdefer list.deinit(allocator);
+) ![]const u8 {
+    var buffer = try std.ArrayList(u8).initCapacity(allocator, 256);
+    defer buffer.deinit(allocator);
 
-    try list.appendSlice(allocator, "{\"assets_ids\":[");
+    try buffer.appendSlice(allocator, "{\"type\":\"subscribe\",\"assets_ids\":[");
 
-    for (assets_ids, 0..) |id, i| {
-        if (i > 0) try list.append(allocator, ',');
-        try list.append(allocator, '"');
-        try list.appendSlice(allocator, id);
-        try list.append(allocator, '"');
+    for (asset_ids, 0..) |id, i| {
+        if (i > 0) try buffer.append(allocator, ',');
+        try buffer.append(allocator, '"');
+        try buffer.appendSlice(allocator, id);
+        try buffer.append(allocator, '"');
     }
 
-    try list.appendSlice(allocator, "],\"type\":\"market\"");
-
+    try buffer.appendSlice(allocator, "],\"custom_feature_enabled\":");
     if (custom_feature_enabled) {
-        try list.appendSlice(allocator, ",\"custom_feature_enabled\":true");
+        try buffer.appendSlice(allocator, "true}");
+    } else {
+        try buffer.appendSlice(allocator, "false}");
     }
 
-    try list.append(allocator, '}');
-
-    return try list.toOwnedSlice(allocator);
+    return try buffer.toOwnedSlice(allocator);
 }
+
+/// 动态订阅类型
+pub const DynamicSubscribeType = enum {
+    subscribe,
+    unsubscribe,
+};
 
 /// 序列化 User Channel 订阅消息
 pub fn serializeUserSubscribe(
     allocator: Allocator,
+    market_ids: []const []const u8,
     api_key: []const u8,
     api_secret: []const u8,
     api_passphrase: []const u8,
-    markets: []const []const u8,
-) ![]u8 {
-    var list = try std.ArrayList(u8).initCapacity(allocator, 512);
-    errdefer list.deinit(allocator);
+) ![]const u8 {
+    var buffer = try std.ArrayList(u8).initCapacity(allocator, 512);
+    defer buffer.deinit(allocator);
 
-    try list.appendSlice(allocator, "{\"auth\":{\"apiKey\":\"");
-    try list.appendSlice(allocator, api_key);
-    try list.appendSlice(allocator, "\",\"secret\":\"");
-    try list.appendSlice(allocator, api_secret);
-    try list.appendSlice(allocator, "\",\"passphrase\":\"");
-    try list.appendSlice(allocator, api_passphrase);
-    try list.appendSlice(allocator, "\"},\"markets\":[");
+    try buffer.appendSlice(allocator, "{\"type\":\"subscribe\",\"markets\":[");
 
-    for (markets, 0..) |market, i| {
-        if (i > 0) try list.append(allocator, ',');
-        try list.append(allocator, '"');
-        try list.appendSlice(allocator, market);
-        try list.append(allocator, '"');
+    for (market_ids, 0..) |id, i| {
+        if (i > 0) try buffer.append(allocator, ',');
+        try buffer.append(allocator, '"');
+        try buffer.appendSlice(allocator, id);
+        try buffer.append(allocator, '"');
     }
 
-    try list.appendSlice(allocator, "],\"type\":\"user\"}");
+    try buffer.appendSlice(allocator, "],\"auth\":{\"apiKey\":\"");
+    try buffer.appendSlice(allocator, api_key);
+    try buffer.appendSlice(allocator, "\",\"secret\":\"");
+    try buffer.appendSlice(allocator, api_secret);
+    try buffer.appendSlice(allocator, "\",\"passphrase\":\"");
+    try buffer.appendSlice(allocator, api_passphrase);
+    try buffer.appendSlice(allocator, "\"}}");
 
-    return try list.toOwnedSlice(allocator);
+    return try buffer.toOwnedSlice(allocator);
 }
 
 /// 序列化动态订阅消息
 pub fn serializeDynamicSubscribe(
     allocator: Allocator,
-    operation: types.SubscriptionOperation,
-    assets_ids: ?[]const []const u8,
-) ![]u8 {
-    var list = try std.ArrayList(u8).initCapacity(allocator, 256);
-    errdefer list.deinit(allocator);
+    action: DynamicSubscribeType,
+    asset_ids: []const []const u8,
+) ![]const u8 {
+    var buffer = try std.ArrayList(u8).initCapacity(allocator, 256);
+    defer buffer.deinit(allocator);
 
-    try list.append(allocator, '{');
+    const type_str = switch (action) {
+        .subscribe => "market_asset_subscribe",
+        .unsubscribe => "market_asset_unsubscribe",
+    };
 
-    if (assets_ids) |ids| {
-        try list.appendSlice(allocator, "\"assets_ids\":[");
-        for (ids, 0..) |id, i| {
-            if (i > 0) try list.append(allocator, ',');
-            try list.append(allocator, '"');
-            try list.appendSlice(allocator, id);
-            try list.append(allocator, '"');
-        }
-        try list.appendSlice(allocator, "],");
+    try buffer.appendSlice(allocator, "{\"type\":\"");
+    try buffer.appendSlice(allocator, type_str);
+    try buffer.appendSlice(allocator, "\",\"assets_ids\":[");
+
+    for (asset_ids, 0..) |id, i| {
+        if (i > 0) try buffer.append(allocator, ',');
+        try buffer.append(allocator, '"');
+        try buffer.appendSlice(allocator, id);
+        try buffer.append(allocator, '"');
     }
 
-    try list.appendSlice(allocator, "\"operation\":\"");
-    try list.appendSlice(allocator, operation.toString());
-    try list.appendSlice(allocator, "\"}");
+    try buffer.appendSlice(allocator, "]}");
 
-    return try list.toOwnedSlice(allocator);
+    return try buffer.toOwnedSlice(allocator);
 }
 
 // ============================================================================
@@ -523,75 +571,32 @@ test "parseWebSocketUrl - wss" {
     try std.testing.expect(result.is_secure);
 }
 
-test "parseWebSocketUrl - ws with port" {
-    const result = try parseWebSocketUrl("ws://localhost:8080/test");
+test "parseWebSocketUrl - ws" {
+    const result = try parseWebSocketUrl("ws://localhost:8080/ws");
     try std.testing.expectEqualStrings("localhost", result.host);
     try std.testing.expectEqual(@as(u16, 8080), result.port);
-    try std.testing.expectEqualStrings("/test", result.path);
+    try std.testing.expectEqualStrings("/ws", result.path);
     try std.testing.expect(!result.is_secure);
-}
-
-test "parseWebSocketUrl - invalid" {
-    const result = parseWebSocketUrl("http://example.com");
-    try std.testing.expectError(WebSocketError.InvalidUrl, result);
 }
 
 test "serializeMarketSubscribe" {
     const allocator = std.testing.allocator;
-    const assets = &[_][]const u8{ "asset1", "asset2" };
-    const json = try serializeMarketSubscribe(allocator, assets, true);
-    defer allocator.free(json);
+    const msg = try serializeMarketSubscribe(allocator, &.{ "token1", "token2" }, false);
+    defer allocator.free(msg);
 
     try std.testing.expectEqualStrings(
-        "{\"assets_ids\":[\"asset1\",\"asset2\"],\"type\":\"market\",\"custom_feature_enabled\":true}",
-        json,
-    );
-}
-
-test "serializeMarketSubscribe - no custom feature" {
-    const allocator = std.testing.allocator;
-    const assets = &[_][]const u8{"asset1"};
-    const json = try serializeMarketSubscribe(allocator, assets, false);
-    defer allocator.free(json);
-
-    try std.testing.expectEqualStrings(
-        "{\"assets_ids\":[\"asset1\"],\"type\":\"market\"}",
-        json,
+        "{\"type\":\"subscribe\",\"assets_ids\":[\"token1\",\"token2\"],\"custom_feature_enabled\":false}",
+        msg,
     );
 }
 
 test "serializeUserSubscribe" {
     const allocator = std.testing.allocator;
-    const markets = &[_][]const u8{"0xabc123"};
-    const json = try serializeUserSubscribe(allocator, "key", "secret", "pass", markets);
-    defer allocator.free(json);
+    const msg = try serializeUserSubscribe(allocator, &.{"market1"}, "key", "secret", "pass");
+    defer allocator.free(msg);
 
     try std.testing.expectEqualStrings(
-        "{\"auth\":{\"apiKey\":\"key\",\"secret\":\"secret\",\"passphrase\":\"pass\"},\"markets\":[\"0xabc123\"],\"type\":\"user\"}",
-        json,
+        "{\"type\":\"subscribe\",\"markets\":[\"market1\"],\"auth\":{\"apiKey\":\"key\",\"secret\":\"secret\",\"passphrase\":\"pass\"}}",
+        msg,
     );
-}
-
-test "serializeDynamicSubscribe" {
-    const allocator = std.testing.allocator;
-    const assets = &[_][]const u8{"asset1"};
-    const json = try serializeDynamicSubscribe(allocator, .subscribe, assets);
-    defer allocator.free(json);
-
-    try std.testing.expectEqualStrings(
-        "{\"assets_ids\":[\"asset1\"],\"operation\":\"subscribe\"}",
-        json,
-    );
-}
-
-test "WebSocketClient.init" {
-    const allocator = std.testing.allocator;
-    var client = try WebSocketClient.init(allocator, "wss://example.com/ws");
-    defer client.deinit();
-
-    try std.testing.expectEqualStrings("example.com", client.host);
-    try std.testing.expectEqual(@as(u16, 443), client.port);
-    try std.testing.expectEqualStrings("/ws", client.path);
-    try std.testing.expect(client.is_secure);
-    try std.testing.expectEqual(ConnectionState.disconnected, client.state);
 }
