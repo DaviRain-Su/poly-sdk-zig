@@ -1,13 +1,15 @@
 //! WebSocket 客户端
 //!
 //! 基于 Zig 标准库实现的 WebSocket 客户端
-//! 支持 Polymarket CLOB WebSocket API
-//!
-//! 注意: 当前版本仅支持非安全 (ws://) 连接
-//! TLS (wss://) 支持需要更复杂的实现，将在未来版本中添加
+//! 支持 TLS (wss://) 和非安全 (ws://) 连接
+//! 用于 Polymarket CLOB WebSocket API
 
 const std = @import("std");
 const types = @import("types.zig");
+const tls = std.crypto.tls;
+const Certificate = std.crypto.Certificate;
+const net = std.net;
+const Io = std.Io;
 
 const Allocator = std.mem.Allocator;
 
@@ -19,15 +21,6 @@ const Opcode = enum(u4) {
     close = 0x8,
     ping = 0x9,
     pong = 0xA,
-};
-
-/// WebSocket 帧头
-const FrameHeader = struct {
-    fin: bool,
-    opcode: Opcode,
-    masked: bool,
-    payload_len: u64,
-    mask_key: ?[4]u8,
 };
 
 /// 读取帧结果
@@ -57,8 +50,13 @@ pub const WebSocketError = error{
     ProtocolError,
     Timeout,
     MaxReconnectAttemptsExceeded,
-    TlsNotSupported,
+    TlsInitializationFailed,
+    CertificateError,
+    OutOfMemory,
 };
+
+/// TLS 缓冲区大小
+const TLS_BUFFER_SIZE = tls.Client.min_buffer_len;
 
 /// WebSocket 客户端
 pub const WebSocketClient = struct {
@@ -72,7 +70,21 @@ pub const WebSocketClient = struct {
     is_secure: bool,
 
     // 底层流
-    tcp_stream: ?std.net.Stream,
+    tcp_stream: ?net.Stream,
+
+    // TLS 相关
+    tls_client: ?tls.Client,
+    stream_reader: ?net.Stream.Reader,
+    stream_writer: ?net.Stream.Writer,
+
+    // 缓冲区（动态分配）
+    tls_read_buffer: []u8,
+    tls_write_buffer: []u8,
+    socket_read_buffer: []u8,
+    socket_write_buffer: []u8,
+
+    // CA 证书
+    ca_bundle: ?Certificate.Bundle,
 
     // 配置
     auto_reconnect: bool,
@@ -100,6 +112,29 @@ pub const WebSocketClient = struct {
         // 解析 URL
         const parsed = try parseWebSocketUrl(url);
 
+        // 分配缓冲区
+        const tls_read_buffer = try allocator.alloc(u8, TLS_BUFFER_SIZE);
+        errdefer allocator.free(tls_read_buffer);
+
+        const tls_write_buffer = try allocator.alloc(u8, TLS_BUFFER_SIZE);
+        errdefer allocator.free(tls_write_buffer);
+
+        const socket_read_buffer = try allocator.alloc(u8, TLS_BUFFER_SIZE);
+        errdefer allocator.free(socket_read_buffer);
+
+        const socket_write_buffer = try allocator.alloc(u8, TLS_BUFFER_SIZE);
+        errdefer allocator.free(socket_write_buffer);
+
+        // 加载系统 CA 证书
+        var ca_bundle: ?Certificate.Bundle = null;
+        if (parsed.is_secure) {
+            ca_bundle = Certificate.Bundle{};
+            ca_bundle.?.rescan(allocator) catch {
+                // 如果无法加载系统证书，使用无验证模式
+                ca_bundle = null;
+            };
+        }
+
         return Self{
             .allocator = allocator,
             .state = .disconnected,
@@ -108,6 +143,14 @@ pub const WebSocketClient = struct {
             .path = parsed.path,
             .is_secure = parsed.is_secure,
             .tcp_stream = null,
+            .tls_client = null,
+            .stream_reader = null,
+            .stream_writer = null,
+            .tls_read_buffer = tls_read_buffer,
+            .tls_write_buffer = tls_write_buffer,
+            .socket_read_buffer = socket_read_buffer,
+            .socket_write_buffer = socket_write_buffer,
+            .ca_bundle = ca_bundle,
             .auto_reconnect = true,
             .max_reconnect_attempts = 5,
             .reconnect_delay_ms = 1000,
@@ -125,22 +168,47 @@ pub const WebSocketClient = struct {
     /// 释放资源
     pub fn deinit(self: *Self) void {
         self.close() catch {};
+
+        if (self.ca_bundle) |*bundle| {
+            bundle.deinit(self.allocator);
+        }
+
+        self.allocator.free(self.tls_read_buffer);
+        self.allocator.free(self.tls_write_buffer);
+        self.allocator.free(self.socket_read_buffer);
+        self.allocator.free(self.socket_write_buffer);
     }
 
     /// 连接到 WebSocket 服务器
     pub fn connect(self: *Self) !void {
         if (self.state == .connected) return;
 
-        // TLS (wss://) 当前不支持
-        if (self.is_secure) {
-            return WebSocketError.TlsNotSupported;
-        }
-
         self.state = .connecting;
 
         // 解析主机名并建立 TCP 连接
-        const address_list = try std.net.Address.resolveIp(self.host, self.port);
-        self.tcp_stream = try std.net.tcpConnectToAddress(address_list);
+        // 使用 tcpConnectToHost 支持域名解析
+        self.tcp_stream = net.tcpConnectToHost(self.allocator, self.host, self.port) catch {
+            // 如果域名解析失败，尝试作为 IP 地址解析
+            const address = net.Address.resolveIp(self.host, self.port) catch {
+                return WebSocketError.ConnectionFailed;
+            };
+            self.tcp_stream = net.tcpConnectToAddress(address) catch {
+                return WebSocketError.ConnectionFailed;
+            };
+            if (self.tcp_stream == null) return WebSocketError.ConnectionFailed;
+            return;
+        };
+
+        const stream = self.tcp_stream.?;
+
+        // 创建流读写器
+        self.stream_reader = stream.reader(self.socket_read_buffer);
+        self.stream_writer = stream.writer(self.socket_write_buffer);
+
+        // 如果是安全连接，初始化 TLS
+        if (self.is_secure) {
+            try self.initTls();
+        }
 
         // 发送 WebSocket 握手
         try self.performHandshake();
@@ -153,6 +221,31 @@ pub const WebSocketClient = struct {
         }
     }
 
+    /// 初始化 TLS 连接
+    fn initTls(self: *Self) !void {
+        var reader = &self.stream_reader.?;
+        var writer = &self.stream_writer.?;
+
+        // 初始化 TLS 客户端
+        self.tls_client = tls.Client.init(
+            reader.interface(),
+            &writer.interface,
+            .{
+                .host = if (self.ca_bundle != null)
+                    .{ .explicit = self.host }
+                else
+                    .no_verification,
+                .ca = if (self.ca_bundle) |bundle|
+                    .{ .bundle = bundle }
+                else
+                    .no_verification,
+                .read_buffer = self.tls_read_buffer,
+                .write_buffer = self.tls_write_buffer,
+                .allow_truncation_attacks = true,
+            },
+        ) catch return WebSocketError.TlsInitializationFailed;
+    }
+
     /// 关闭连接
     pub fn close(self: *Self) !void {
         if (self.state == .closed or self.state == .disconnected) return;
@@ -161,6 +254,11 @@ pub const WebSocketClient = struct {
 
         // 发送关闭帧
         self.sendCloseFrame() catch {};
+
+        // 清理 TLS
+        self.tls_client = null;
+        self.stream_reader = null;
+        self.stream_writer = null;
 
         // 关闭 TCP
         if (self.tcp_stream) |stream| {
@@ -241,16 +339,38 @@ pub const WebSocketClient = struct {
     // 内部方法
     // ========================================================================
 
-    /// 写入数据
+    /// 写入数据（支持 TLS 和普通 TCP）
     fn writeData(self: *Self, data: []const u8) !void {
-        const stream = self.tcp_stream orelse return WebSocketError.ConnectionFailed;
-        _ = stream.write(data) catch return WebSocketError.SendFailed;
+        if (self.is_secure) {
+            if (self.tls_client) |*tls_client| {
+                tls_client.writer.writeAll(data) catch return WebSocketError.SendFailed;
+            } else {
+                return WebSocketError.ConnectionFailed;
+            }
+        } else {
+            if (self.stream_writer) |*writer| {
+                writer.interface.writeAll(data) catch return WebSocketError.SendFailed;
+            } else {
+                return WebSocketError.ConnectionFailed;
+            }
+        }
     }
 
-    /// 读取数据
+    /// 读取数据（支持 TLS 和普通 TCP）
     fn readData(self: *Self, buffer: []u8) !usize {
-        const stream = self.tcp_stream orelse return WebSocketError.ConnectionFailed;
-        return stream.read(buffer) catch return WebSocketError.ReceiveFailed;
+        if (self.is_secure) {
+            if (self.tls_client) |*tls_client| {
+                return tls_client.reader.readSliceShort(buffer) catch return WebSocketError.ReceiveFailed;
+            } else {
+                return WebSocketError.ConnectionFailed;
+            }
+        } else {
+            if (self.stream_reader) |*reader| {
+                return reader.interface().readSliceShort(buffer) catch return WebSocketError.ReceiveFailed;
+            } else {
+                return WebSocketError.ConnectionFailed;
+            }
+        }
     }
 
     /// 执行 WebSocket 握手
