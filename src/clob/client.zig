@@ -500,6 +500,12 @@ pub const ClobClient = struct {
         var response = req.receiveHead(&.{}) catch return Error.ConnectionFailed;
 
         if (errorFromStatus(response.head.status)) |err| {
+            // 读取错误响应体用于调试
+            const error_body = readResponseBody(self.allocator, &response) catch {
+                return err;
+            };
+            defer self.allocator.free(error_body);
+            std.debug.print("API Error ({d}): {s}\n", .{ @intFromEnum(response.head.status), error_body });
             return err;
         }
 
@@ -1165,13 +1171,17 @@ pub const ClobClient = struct {
         order: *const SignedOrder,
         order_type: types.OrderType,
     ) !types.PostOrderResponse {
+        const creds = self.api_creds orelse return Error.Unauthorized;
+
         // Build request body
         var buffers = SignedOrder.OrderDataBuffers{};
         const order_data = order.toOrderData(&buffers);
 
         // Serialize to JSON
+        // 注意：API 需要 3 个字段：order, owner (API Key), orderType
         const request_body = .{
             .order = order_data,
+            .owner = creds.getApiKey(),
             .orderType = order_type.toString(),
         };
 

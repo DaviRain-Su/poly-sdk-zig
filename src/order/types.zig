@@ -248,14 +248,43 @@ pub const SignedOrder = struct {
         return self.signature.toHex(buffer);
     }
 
-    /// 格式化地址为 0x hex 字符串
+    /// 格式化地址为 EIP-55 checksum 格式的 0x hex 字符串
+    ///
+    /// EIP-55 规范：
+    /// 1. 将地址转换为小写十六进制（不含 0x 前缀）
+    /// 2. 计算小写地址的 keccak256 哈希
+    /// 3. 对于地址中的每个字符：如果是字母 (a-f) 且对应的哈希半字节 >= 8，则大写
     fn formatAddress(bytes: [20]u8, buffer: *[42]u8) void {
         buffer[0] = '0';
         buffer[1] = 'x';
         const hex_chars = "0123456789abcdef";
+
+        // 首先生成小写的十六进制地址（用于 keccak256 哈希）
+        var addr_hex: [40]u8 = undefined;
         for (bytes, 0..) |byte, i| {
-            buffer[2 + i * 2] = hex_chars[byte >> 4];
-            buffer[2 + i * 2 + 1] = hex_chars[byte & 0x0F];
+            addr_hex[i * 2] = hex_chars[byte >> 4];
+            addr_hex[i * 2 + 1] = hex_chars[byte & 0x0F];
+        }
+
+        // 计算 keccak256(lowercase_hex_address)
+        const hash = root.crypto.keccak256(&addr_hex);
+
+        // 根据哈希值决定每个字符的大小写
+        for (0..40) |i| {
+            const char = addr_hex[i];
+            if (char >= 'a' and char <= 'f') {
+                // 获取哈希中对应的半字节
+                const hash_byte = hash[i / 2];
+                const hash_nibble: u4 = if (i % 2 == 0) @truncate(hash_byte >> 4) else @truncate(hash_byte & 0x0F);
+                // 如果哈希半字节 >= 8，则大写
+                if (hash_nibble >= 8) {
+                    buffer[2 + i] = char - 32; // 转换为大写
+                } else {
+                    buffer[2 + i] = char;
+                }
+            } else {
+                buffer[2 + i] = char;
+            }
         }
     }
 
@@ -289,9 +318,10 @@ pub const SignedOrder = struct {
     ///
     /// 返回用于 POST /order 请求的 OrderData 结构。
     /// 注意：返回的结构引用内部缓冲区，需要立即使用或复制。
+    ///
+    /// 重要：salt 作为 JSON number (u64) 序列化，与官方实现一致。
     pub fn toOrderData(self: *const Self, buffers: *OrderDataBuffers) OrderDataView {
         // 格式化各字段
-        const salt_str = formatU256(self.salt, &buffers.salt);
         const token_id_str = formatU256(self.token_id, &buffers.token_id);
         const maker_amount_str = formatU256(self.maker_amount, &buffers.maker_amount);
         const taker_amount_str = formatU256(self.taker_amount, &buffers.taker_amount);
@@ -308,7 +338,9 @@ pub const SignedOrder = struct {
         @memcpy(&buffers.signature, sig_hex);
 
         return OrderDataView{
-            .salt = salt_str,
+            // salt 作为数字输出，与 Rust/Python 实现一致
+            // API 要求 salt 是 JSON number，不是字符串
+            .salt = @truncate(self.salt),
             .maker = &buffers.maker,
             .signer = &buffers.signer,
             .taker = &buffers.taker,
@@ -326,7 +358,6 @@ pub const SignedOrder = struct {
 
     /// OrderData 缓冲区
     pub const OrderDataBuffers = struct {
-        salt: [78]u8 = undefined, // u256 最大 78 位十进制
         maker: [42]u8 = undefined,
         signer: [42]u8 = undefined,
         taker: [42]u8 = undefined,
@@ -340,8 +371,12 @@ pub const SignedOrder = struct {
     };
 
     /// OrderData 视图（用于 JSON 序列化）
+    ///
+    /// 注意: salt 是 u64 (JSON number)，与官方 Python/Rust 实现一致。
+    /// 其他大数字段使用字符串表示。
     pub const OrderDataView = struct {
-        salt: []const u8,
+        /// Salt - 序列化为 JSON number (u64)
+        salt: u64,
         maker: []const u8,
         signer: []const u8,
         taker: []const u8,
@@ -452,10 +487,30 @@ test "SignedOrder.formatU256" {
     try std.testing.expectEqualStrings("100000000", large);
 }
 
-test "SignedOrder.formatAddress" {
+test "SignedOrder.formatAddress EIP-55 checksum" {
     var buf: [42]u8 = undefined;
-    const addr: [20]u8 = [_]u8{ 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x12 };
 
-    SignedOrder.formatAddress(addr, &buf);
-    try std.testing.expectEqualStrings("0xabcdef1234567890abcdef1234567890abcdef12", &buf);
+    // 测试一个已知地址的 EIP-55 checksum
+    // 地址: 0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed
+    // 这是 EIP-55 规范中的示例地址
+    const addr1: [20]u8 = [_]u8{
+        0x5a, 0xAe, 0xb6, 0x05, 0x3F, 0x3E, 0x94, 0xC9, 0xb9, 0xA0,
+        0x9f, 0x33, 0x66, 0x94, 0x35, 0xE7, 0xEf, 0x1B, 0xeA, 0xed,
+    };
+    SignedOrder.formatAddress(addr1, &buf);
+    try std.testing.expectEqualStrings("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", &buf);
+
+    // 测试零地址（全部小写，因为没有字母需要大写）
+    const zero_addr: [20]u8 = [_]u8{0} ** 20;
+    SignedOrder.formatAddress(zero_addr, &buf);
+    try std.testing.expectEqualStrings("0x0000000000000000000000000000000000000000", &buf);
+
+    // 测试另一个已知地址
+    // 0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359
+    const addr2: [20]u8 = [_]u8{
+        0xfB, 0x69, 0x16, 0x09, 0x5c, 0xa1, 0xdf, 0x60, 0xbB, 0x79,
+        0xCe, 0x92, 0xcE, 0x3E, 0xa7, 0x4c, 0x37, 0xc5, 0xd3, 0x59,
+    };
+    SignedOrder.formatAddress(addr2, &buf);
+    try std.testing.expectEqualStrings("0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359", &buf);
 }

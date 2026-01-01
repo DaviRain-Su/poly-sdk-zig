@@ -182,10 +182,17 @@ pub fn validateSize(size: Decimal) CalculatorError!void {
 }
 
 /// 生成随机 salt
+///
+/// 注意: Polymarket CLOB API 要求 salt 是一个 JSON number。
+/// Python 实现使用 `round(time.now() * random())`，生成约 10 位数字。
+/// 我们模拟类似的范围，生成一个 32 位随机数（0 到 ~4.2 billion）。
 pub fn generateSalt() u256 {
-    var buf: [32]u8 = undefined;
+    // 生成 32 位随机数，与 Python 实现的范围相近
+    // Python: round(timestamp * random()) ≈ 0 to ~1.7 billion
+    // 我们使用 u32 范围：0 to ~4.2 billion
+    var buf: [4]u8 = undefined;
     std.crypto.random.bytes(&buf);
-    return std.mem.readInt(u256, &buf, .big);
+    return @as(u256, std.mem.readInt(u32, &buf, .big));
 }
 
 /// 市价计算结果
