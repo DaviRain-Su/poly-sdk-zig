@@ -11,7 +11,8 @@
 | `authentication.zig` | L1/L2 认证流程 | 是 |
 | `order_management.zig` | 订单创建、发布和管理 | 是 |
 | `websocket.zig` | WebSocket 实时数据订阅 | 部分 |
-| `btc_ws_trader.zig` | BTC 15分钟 WebSocket 实时交易系统 | 是（实盘）/否（模拟）|
+| `btc_ws_trader.zig` | BTC 15分钟 两步对冲套利交易系统 | 是（实盘）/否（模拟）|
+| `smart_auto_trade.zig` | BTC 15分钟 概率偏差自动交易系统 | 是（实盘）/否（模拟）|
 | `btc_orderbook_monitor.zig` | BTC 15分钟订单簿实时监控 | 否 |
 
 ## 运行示例
@@ -26,7 +27,8 @@ zig build run-public_api            # 公共 API 演示
 zig build run-authentication        # 认证流程演示
 zig build run-order_management      # 订单管理演示
 zig build run-websocket             # WebSocket 演示
-zig build run-btc_ws_trader         # BTC 实时交易系统
+zig build run-btc_ws_trader         # BTC 两步对冲套利系统
+zig build run-smart_auto_trade      # BTC 概率偏差交易系统
 zig build run-btc_orderbook_monitor # BTC 订单簿监控
 ```
 
@@ -44,9 +46,17 @@ WS_TRADER_SIGNATURE_TYPE=2
 # Proxy/Funder 地址（用于 POLY_PROXY 或 POLY_GNOSIS_SAFE）
 POLY_ADDRESS=0x...
 
-# 交易配置
+# btc_ws_trader 配置
 WS_TRADER_DRY_RUN=true              # true=模拟模式, false=实盘
 WS_TRADER_ORDER_SIZE=10             # 每单金额（美元）
+WS_TRADER_SUM_TARGET=0.30           # 价格总和目标（买入触发）
+WS_TRADER_HEDGE_THRESHOLD=0.05      # 反弹对冲阈值 (5%)
+
+# smart_auto_trade 配置
+SMART_TRADER_DRY_RUN=true           # true=模拟模式, false=实盘
+SMART_TRADER_PROB_THRESHOLD=0.55    # 概率偏差阈值 (55%)
+SMART_TRADER_ORDER_SIZE=5.0         # 每单金额（美元）
+SMART_TRADER_MAX_POSITION=50.0      # 最大持仓（美元）
 ```
 
 ## 注意事项

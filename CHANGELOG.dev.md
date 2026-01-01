@@ -6,6 +6,80 @@
 
 ## 会话记录
 
+### Session 2026-01-01-001
+
+**日期**: 2026-01-01
+**时长**: ~30 分钟
+**目标**: 修复 smart_auto_trade.zig 和优化浮盈计算
+
+#### 完成的工作
+
+##### 1. 重新创建 smart_auto_trade.zig
+
+由于原文件损坏（包含 git diff 标记），完全重新创建了 `examples/smart_auto_trade.zig`：
+
+- **策略类型**: 概率偏差交易（与 btc_ws_trader 的两步对冲策略不同）
+- **核心逻辑**:
+  - 当 UP 概率 >= 阈值（默认 55%）时买入 UP
+  - 当 UP 概率 <= (1-阈值) 时买入 DOWN
+  - 检测套利机会：当 UP + DOWN 偏离 1.00 时
+- **配置环境变量**:
+  - `SMART_TRADER_DRY_RUN` - 模拟模式
+  - `SMART_TRADER_PROB_THRESHOLD` - 概率偏差阈值
+  - `SMART_TRADER_ORDER_SIZE` - 单次订单金额
+
+##### 2. 修复编译错误
+
+- `poly.EnvLoader.init()` → `poly.loadEnvOrEmpty()`
+- `ClobClient.ClientConfig` → `poly.clob.client.Config`
+
+##### 3. 添加到 build.zig
+
+- 添加 smart_auto_trade 到 examples 列表
+- 运行命令: `zig build run-smart_auto_trade`
+
+##### 4. 优化浮盈计算 (btc_ws_trader.zig)
+
+修复浮盈显示与前端不一致的问题：
+
+```zig
+// 旧算法 - 使用中间价
+const current_profit = (yes_price - avg_buy) * shares;
+
+// 新算法 - 使用 bid 价（实际卖出价）
+const sell_price = g_live_book.up_best_bid;
+const current_profit = (sell_price - avg_buy) * shares;
+```
+
+**差异说明**:
+- 中间价 = `(bid + ask) / 2` = 理论估值
+- bid 价 = 实际能卖出的价格（更保守、更准确）
+
+#### 测试结果
+
+```bash
+$ zig build examples
+# 所有示例构建成功
+
+$ zig build test
+# 所有测试通过
+```
+
+#### 文件变更
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `examples/smart_auto_trade.zig` | 重新创建 | 概率偏差交易策略 |
+| `build.zig` | 修改 | 添加 smart_auto_trade 示例 |
+| `examples/btc_ws_trader.zig` | 修改 | 使用 bid 价计算浮盈 |
+
+#### 下一步
+
+- [x] 更新 examples/README.md
+- [x] 更新 ROADMAP.md 变更日志
+
+---
+
 ### Session 2024-12-31-014
 
 **日期**: 2024-12-31  

@@ -586,12 +586,17 @@ const HedgeArbitrageBot = struct {
                             self.phase = .hedged;
                             log("", .{});
                             log("  ✅ 对冲完成! 锁定利润", .{});
-                            log("  YES 成本: ${d:.2}, NO 收入: ${d:.2}", .{
+                            log("  YES 成本: ${d:.2}, NO 成本: ${d:.2}", .{
                                 self.yes_position.total_cost,
                                 self.no_position.total_revenue,
                             });
-                            log("  锁定利润: ${d:.2}", .{
-                                self.no_position.total_revenue - self.yes_position.total_cost + self.yes_position.shares,
+                            // 利润 = 锁定价值($1/股) - YES成本 - NO成本
+                            const locked_value = self.yes_position.shares;
+                            const total_cost = self.yes_position.total_cost + self.no_position.total_revenue;
+                            log("  锁定价值: ${d:.2}, 总成本: ${d:.2}, 利润: ${d:.2}", .{
+                                locked_value,
+                                total_cost,
+                                locked_value - total_cost,
                             });
                         }
                         // 如果对冲失败，保持 waiting_for_rebound 状态，下次继续尝试
@@ -729,44 +734,50 @@ const HedgeArbitrageBot = struct {
         }
     }
 
-    /// 执行对冲（卖出 NO）
+    /// 执行对冲（买入 NO）
     /// 返回 true 表示对冲成功，false 表示失败
+    ///
+    /// 对冲原理：持有 YES 后，买入等量 NO
+    /// 因为 YES + NO = $1（结算时），无论结果如何都能锁定价值
+    /// 利润 = $1 - YES成本 - NO成本
     fn executeHedge(self: *Self, market: MarketInfo, _: f64) !bool {
-        // 卖出等量的 NO 股份（使用整数）
+        // 买入等量的 NO 股份（使用整数）
         const int_shares: u64 = @intFromFloat(@floor(self.yes_position.shares));
         if (int_shares == 0) {
             log("  ⚠️ 没有足够的 YES 持仓进行对冲", .{});
             return false;
         }
 
-        const shares_to_sell = @as(f64, @floatFromInt(int_shares));
-        const no_sell_price = g_live_book.down_best_bid; // 以买一价卖出
-        const revenue = shares_to_sell * no_sell_price;
+        const shares_to_buy = @as(f64, @floatFromInt(int_shares));
+        const no_buy_price = g_live_book.down_best_ask; // 以卖一价买入
+        const cost = shares_to_buy * no_buy_price;
 
         // 确保订单金额 >= $1 (API 最低要求)
-        if (revenue < 1.0) {
-            log("  ⚠️ 对冲金额 ${d:.2} 小于最低要求 $1，跳过", .{revenue});
+        if (cost < 1.0) {
+            log("  ⚠️ 对冲金额 ${d:.2} 小于最低要求 $1，跳过", .{cost});
             return false;
         }
 
-        log("  📉 对冲卖出 NO: {d:.0} 股 @ {d:.4}, 收入: ${d:.2}", .{ shares_to_sell, no_sell_price, revenue });
+        log("  📈 对冲买入 NO: {d:.0} 股 @ {d:.4}, 成本: ${d:.2}", .{ shares_to_buy, no_buy_price, cost });
 
         if (self.config.dry_run) {
             // 模拟模式
-            self.no_position.addSell(shares_to_sell, revenue);
+            self.no_position.shares += shares_to_buy;
+            self.no_position.total_revenue = cost; // 这里改为记录成本
             self.stats.hedges_executed += 1;
 
             // 计算利润
-            // YES + NO = 1，锁定价值 = shares * 1 = shares
-            // 利润 = 锁定价值 - YES成本
-            const locked_value = shares_to_sell; // 每份 YES+NO = $1
-            const profit = locked_value - self.yes_position.total_cost;
+            // YES + NO = $1（结算时）
+            // 锁定价值 = shares * $1 = shares
+            // 利润 = 锁定价值 - YES成本 - NO成本
+            const locked_value = shares_to_buy;
+            const profit = locked_value - self.yes_position.total_cost - cost;
             self.stats.total_profit += profit;
             return true;
         } else {
-            // 实盘下单 - 卖出 NO
+            // 实盘下单 - 买入 NO
             if (self.builder) |*builder| {
-                const price_str = try std.fmt.allocPrint(self.allocator, "{d:.2}", .{no_sell_price});
+                const price_str = try std.fmt.allocPrint(self.allocator, "{d:.2}", .{no_buy_price});
                 defer self.allocator.free(price_str);
                 const size_str = try std.fmt.allocPrint(self.allocator, "{d}", .{int_shares});
                 defer self.allocator.free(size_str);
@@ -775,7 +786,7 @@ const HedgeArbitrageBot = struct {
                     .token_id = market.getDownTokenId(),
                     .price = try Decimal.fromString(price_str),
                     .size = try Decimal.fromString(size_str),
-                    .side = .SELL, // 卖出 NO
+                    .side = .BUY, // 买入 NO（不是卖出！）
                 }, .{
                     .tick_size = .@"0.01",
                     .neg_risk = false,
@@ -789,11 +800,12 @@ const HedgeArbitrageBot = struct {
                 };
 
                 if (response.success) {
-                    self.no_position.addSell(shares_to_sell, revenue);
+                    self.no_position.shares += shares_to_buy;
+                    self.no_position.total_revenue = cost;
                     self.stats.hedges_executed += 1;
 
-                    const locked_value = shares_to_sell;
-                    const profit = locked_value - self.yes_position.total_cost;
+                    const locked_value = shares_to_buy;
+                    const profit = locked_value - self.yes_position.total_cost - cost;
                     self.stats.total_profit += profit;
 
                     log("  ✅ 对冲成功!", .{});
@@ -937,7 +949,7 @@ const HedgeArbitrageBot = struct {
             self.yes_position.total_cost,
             self.yes_position.avgPrice(),
         });
-        std.debug.print("║  NO  对冲: {d:>7.2} 股   收入: ${d:>7.2}                                 ║\n", .{
+        std.debug.print("║  NO  对冲: {d:>7.2} 股   成本: ${d:>7.2}                                 ║\n", .{
             self.no_position.shares,
             self.no_position.total_revenue,
         });
@@ -949,11 +961,12 @@ const HedgeArbitrageBot = struct {
             self.config.sum_target * 100,
         });
 
-        // 显示潜在利润
+        // 显示潜在利润（使用 bid 价，即实际能卖出的价格）
         if (self.yes_position.shares > 0 and self.phase != .hedged) {
             const avg_buy = self.yes_position.avgPrice();
-            const current_profit = (yes_price - avg_buy) * self.yes_position.shares;
-            std.debug.print("║  当前浮盈: ${d:>7.2}   (反弹 {d:.2}% 后对冲)                           ║\n", .{
+            const sell_price = g_live_book.up_best_bid; // 用 bid 价计算（实际卖出价）
+            const current_profit = (sell_price - avg_buy) * self.yes_position.shares;
+            std.debug.print("║  当前浮盈: ${d:>7.2}   (按bid价, 反弹 {d:.2}% 后对冲)                 ║\n", .{
                 current_profit,
                 self.config.hedge_profit_threshold * 100,
             });

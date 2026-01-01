@@ -390,7 +390,7 @@ try ws.run();
 - [x] 完整文档
 - [ ] 性能基准测试
 - [ ] 安全审计
-- [x] 示例应用（7 个示例）
+- [x] 示例应用（8 个示例）
 - [x] CI/CD 配置（GitHub Actions）
 - [x] dotenv 模块（.env 文件加载）
 - [x] WebSocket 内存安全修复
@@ -454,3 +454,4 @@ try ws.run();
 | 2026-01-01 | v1.0 工具：btc_smart_trader 智能交易系统 v2、真实价差分析、多策略模式 (做市/套利/趋势/混合) |
 | 2026-01-01 | v1.0 工具：btc_ws_trader WebSocket 实时交易、TLS 支持、REST API 自动降级 (371 tests) |
 | 2026-01-01 | v1.0 完成：流动性奖励 API (6 端点)、Gamma API (3 端点)，100% API 覆盖 (385 tests) |
+| 2026-01-01 | v1.0 增强：smart_auto_trade 概率偏差交易策略、btc_ws_trader 浮盈计算优化 (使用 bid 价) |
